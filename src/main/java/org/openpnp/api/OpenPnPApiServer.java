@@ -1,177 +1,78 @@
 package org.openpnp.api;
 
 import io.javalin.Javalin;
-import org.openpnp.Main;
+import io.javalin.openapi.plugin.OpenApiPlugin;
+import io.javalin.openapi.plugin.redoc.ReDocPlugin;
+import io.javalin.openapi.plugin.swagger.SwaggerPlugin;
 import org.openpnp.api.controllers.HealthController;
 import org.pmw.tinylog.Logger;
 
+import static io.javalin.apibuilder.ApiBuilder.*;
+
 /**
- * Главный веб-сервер API для OpenPnP
+ * Сервер OpenPnP API
  */
 public class OpenPnPApiServer {
 
     private Javalin app;
-    private final int port;
-    private boolean running = false;
 
-    public OpenPnPApiServer(int port) {
-        this.port = port;
-    }
-
-    /**
-     * Инициализация сервера
-     */
-    private void initializeServer() {
-        app = Javalin.create(config -> {
-            // Базовая конфигурация
-            config.http.defaultContentType = "application/json";
-
-            // Логирование запросов
-            config.plugins.enableDevLogging();
-        });
-
-        // Добавляем простые CORS заголовки
-        app.before(ctx -> {
-            ctx.header("Access-Control-Allow-Origin", "*");
-            ctx.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-            ctx.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-        });
-
-        // Обработка OPTIONS запросов для CORS
-        app.options("/*", ctx -> ctx.result("OK"));
-
-        setupRoutes();
-        setupErrorHandling();
-    }
-
-    /**
-     * Настройка маршрутов
-     */
-    private void setupRoutes() {
-        // Основные health endpoints
-        app.get("/api/ping", HealthController::ping);
-        app.get("/api/health", HealthController::health);
-
-        // Корневой endpoint с информацией об API
-        app.get("/api", ctx -> {
-            ctx.json(new java.util.HashMap<String, Object>() {
-                {
-                    put("name", "OpenPnP API");
-                    put("version", Main.getVersion());
-                    put("description", "REST API для управления OpenPnP системой");
-                    put("endpoints", new java.util.HashMap<String, String>() {
-                        {
-                            put("ping", "/api/ping");
-                            put("health", "/api/health");
-                        }
-                    });
-                }
-            });
-        });
-
-        // Корневая страница
-        app.get("/", ctx -> {
-            ctx.html("<h1>OpenPnP API</h1><p>API запущен и готов к использованию!</p>" +
-                    "<ul><li><a href='/api'>/api</a> - информация об API</li>" +
-                    "<li><a href='/api/ping'>/api/ping</a> - проверка доступности</li>" +
-                    "<li><a href='/api/health'>/api/health</a> - проверка здоровья</li></ul>");
-        });
-
-        Logger.info("API routes configured");
-    }
-
-    /**
-     * Настройка обработки ошибок
-     */
-    private void setupErrorHandling() {
-        // 404 - Not Found
-        app.error(404, ctx -> {
-            ctx.json(new java.util.HashMap<String, Object>() {
-                {
-                    put("success", false);
-                    put("message", "Endpoint не найден: " + ctx.path());
-                    put("timestamp", java.time.Instant.now().toString());
-                }
-            });
-        });
-
-        // 500 - Internal Server Error
-        app.error(500, ctx -> {
-            ctx.json(new java.util.HashMap<String, Object>() {
-                {
-                    put("success", false);
-                    put("message", "Внутренняя ошибка сервера");
-                    put("timestamp", java.time.Instant.now().toString());
-                }
-            });
-        });
-
-        // Общий обработчик исключений
-        app.exception(Exception.class, (e, ctx) -> {
-            Logger.error("API Exception: " + e.getMessage(), e);
-            ctx.status(500).json(new java.util.HashMap<String, Object>() {
-                {
-                    put("success", false);
-                    put("message", "Ошибка: " + e.getMessage());
-                    put("timestamp", java.time.Instant.now().toString());
-                }
-            });
-        });
-    }
-
-    /**
-     * Запуск сервера
-     */
-    public void start() {
-        if (running) {
-            Logger.warn("API сервер уже запущен");
-            return;
-        }
-
+    public void start(int port) {
         try {
-            initializeServer();
-            app.start(port);
-            running = true;
+            app = Javalin.create(config -> {
+                // Настраиваем OpenAPI плагин
+                config.registerPlugin(new OpenApiPlugin(pluginConfig -> {
+                    pluginConfig.withDefinitionConfiguration((version, definition) -> {
+                        definition.withOpenApiInfo(info -> {
+                            info.setTitle("OpenPnP API");
+                            info.setDescription("REST API для управления OpenPnP машиной");
+                            info.setVersion("1.0.0");
+                        });
+                    });
+                }));
+
+                // Добавляем Swagger UI
+                config.registerPlugin(new SwaggerPlugin());
+
+                // Добавляем ReDoc
+                config.registerPlugin(new ReDocPlugin());
+
+                // Настраиваем маршруты
+                config.router.apiBuilder(() -> {
+                    // Корневая страница
+                    get("/", HealthController::getRoot);
+
+                    // API эндпоинты
+                    path("/api", () -> {
+                        get("/", HealthController::getApiInfo);
+                        get("/health", HealthController::getHealth);
+                        get("/ping", HealthController::ping);
+                    });
+                });
+
+                // Настраиваем CORS для разработки
+                config.bundledPlugins.enableCors(cors -> {
+                    cors.addRule(it -> {
+                        it.anyHost();
+                    });
+                });
+
+            }).start(port);
+
             Logger.info("OpenPnP API сервер запущен на порту " + port);
-            Logger.info("API доступен по адресу: http://localhost:" + port);
-            Logger.info("Ping endpoint: http://localhost:" + port + "/api/ping");
+            Logger.info("Swagger UI доступен по адресу: http://localhost:" + port + "/swagger");
+            Logger.info("ReDoc доступен по адресу: http://localhost:" + port + "/redoc");
+            Logger.info("API доступен по адресу: http://localhost:" + port + "/api");
+
         } catch (Exception e) {
-            Logger.error("Ошибка запуска API сервера: " + e.getMessage(), e);
+            Logger.error("Ошибка запуска API сервера", e);
             throw new RuntimeException("Не удалось запустить API сервер", e);
         }
     }
 
-    /**
-     * Остановка сервера
-     */
     public void stop() {
-        if (!running) {
-            Logger.warn("API сервер уже остановлен");
-            return;
+        if (app != null) {
+            app.stop();
+            Logger.info("OpenPnP API сервер остановлен");
         }
-
-        try {
-            if (app != null) {
-                app.stop();
-                running = false;
-                Logger.info("OpenPnP API сервер остановлен");
-            }
-        } catch (Exception e) {
-            Logger.error("Ошибка остановки API сервера: " + e.getMessage(), e);
-        }
-    }
-
-    /**
-     * Проверка статуса сервера
-     */
-    public boolean isRunning() {
-        return running;
-    }
-
-    /**
-     * Получение порта сервера
-     */
-    public int getPort() {
-        return port;
     }
 }

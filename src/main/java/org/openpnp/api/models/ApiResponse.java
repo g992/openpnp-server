@@ -1,55 +1,43 @@
 package org.openpnp.api.models;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import io.javalin.openapi.OpenApiExample;
-
-import java.time.Instant;
-
 /**
  * Стандартный ответ API
+ * 
+ * @param <T> тип данных в поле data
  */
-@JsonInclude(JsonInclude.Include.NON_NULL)
-public class ApiResponse {
-
-    @JsonProperty("success")
+public class ApiResponse<T> {
     private boolean success;
-
-    @JsonProperty("message")
     private String message;
-
-    @JsonProperty("data")
-    private Object data;
-
-    @JsonProperty("timestamp")
-    private String timestamp;
+    private T data;
 
     public ApiResponse() {
-        this.timestamp = Instant.now().toString();
     }
 
     public ApiResponse(boolean success, String message) {
-        this();
         this.success = success;
         this.message = message;
     }
 
-    public ApiResponse(boolean success, String message, Object data) {
-        this(success, message);
+    public ApiResponse(boolean success, String message, T data) {
+        this.success = success;
+        this.message = message;
         this.data = data;
     }
 
-    // Статические методы для удобства
-    public static ApiResponse success(String message) {
-        return new ApiResponse(true, message);
+    public static <T> ApiResponse<T> success(String message, T data) {
+        return new ApiResponse<>(true, message, data);
     }
 
-    public static ApiResponse success(String message, Object data) {
-        return new ApiResponse(true, message, data);
+    public static <T> ApiResponse<T> success(T data) {
+        return new ApiResponse<>(true, "Success", data);
     }
 
-    public static ApiResponse error(String message) {
-        return new ApiResponse(false, message);
+    public static <T> ApiResponse<T> success(String message) {
+        return new ApiResponse<>(true, message, null);
+    }
+
+    public static <T> ApiResponse<T> error(String message) {
+        return new ApiResponse<>(false, message, null);
     }
 
     // Геттеры и сеттеры
@@ -69,19 +57,11 @@ public class ApiResponse {
         this.message = message;
     }
 
-    public Object getData() {
+    public T getData() {
         return data;
     }
 
-    public void setData(Object data) {
+    public void setData(T data) {
         this.data = data;
-    }
-
-    public String getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(String timestamp) {
-        this.timestamp = timestamp;
     }
 }

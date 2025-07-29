@@ -144,8 +144,8 @@ public class Main {
             boolean apiEnabled = Boolean.parseBoolean(System.getProperty("openpnp.api.enabled", "true"));
 
             if (apiEnabled) {
-                apiServer = new OpenPnPApiServer(apiPort);
-                apiServer.start();
+                apiServer = new OpenPnPApiServer();
+                apiServer.start(apiPort);
             } else {
                 Logger.info("API сервер отключен через настройку openpnp.api.enabled=false");
             }
