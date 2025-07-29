@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPnP Machine Status - WebSocket Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-connected {
+            background-color: #4CAF50;
+        }
+
+        .status-disconnected {
+            background-color: #f44336;
+        }
+
+        .status-connecting {
+            background-color: #ff9800;
+        }
+
+        .machine-status {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            background-color: #fafafa;
+        }
+
+        .axis-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 10px 0;
+        }
+
+        .axis-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+        }
+
+        .head-info {
+            margin: 10px 0;
+        }
+
+        .feeder-info {
+            margin: 10px 0;
+        }
+
+        .controls {
+            margin: 20px 0;
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 10px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .timestamp {
+            color: #6c757d;
+            font-size: 11px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>OpenPnP Machine Status - WebSocket Test</h1>
+
+        <div class="connection-status">
+            <h3>
+                <span id="statusIndicator" class="status-indicator status-disconnected"></span>
+                Статус подключения: <span id="connectionStatus">Отключено</span>
+            </h3>
+            <p>Подключений: <span id="connectionCount">0</span></p>
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="connect()">Подключиться</button>
+            <button class="btn-warning" onclick="disconnect()">Отключиться</button>
+            <button class="btn-success" onclick="getStatus()">Получить статус</button>
+            <button class="btn-danger" onclick="clearLog()">Очистить лог</button>
+        </div>
+
+        <div class="websocket-controls">
+            <h3>Информация о WebSocket</h3>
+            <div>
+                <button class="btn-success" onclick="getWebSocketInfo()">Получить информацию</button>
+            </div>
+            <div id="websocketInfo"
+                style="margin-top: 10px; padding: 10px; background-color: #f8f9fa; border-radius: 4px;"></div>
+        </div>
+
+        <div class="machine-status">
+            <h3>Статус машины</h3>
+            <div id="machineStatus">Загрузка...</div>
+        </div>
+
+        <div class="log-container">
+            <h3>Лог событий</h3>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `<div><span class="timestamp">[${timestamp}]</span> ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateConnectionStatus(status, className) {
+            document.getElementById('connectionStatus').textContent = status;
+            const indicator = document.getElementById('statusIndicator');
+            indicator.className = `status-indicator ${className}`;
+        }
+
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                log('Уже подключено');
+                return;
+            }
+
+            updateConnectionStatus('Подключение...', 'status-connecting');
+            log('Попытка подключения к WebSocket...');
+
+            try {
+                ws = new WebSocket('ws://localhost:8080/ws/machine-status');
+
+                ws.onopen = function (event) {
+                    updateConnectionStatus('Подключено', 'status-connected');
+                    reconnectAttempts = 0;
+                    log('WebSocket подключение установлено');
+                };
+
+                ws.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        updateMachineStatus(data);
+                        log('Получено обновление статуса машины');
+                    } catch (e) {
+                        log('Получено сообщение: ' + event.data);
+                    }
+                };
+
+                ws.onclose = function (event) {
+                    updateConnectionStatus('Отключено', 'status-disconnected');
+                    log('WebSocket соединение закрыто');
+
+                    // Попытка переподключения
+                    if (reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        log(`Попытка переподключения ${reconnectAttempts}/${maxReconnectAttempts} через 3 секунды...`);
+                        setTimeout(connect, 3000);
+                    }
+                };
+
+                ws.onerror = function (error) {
+                    updateConnectionStatus('Ошибка', 'status-disconnected');
+                    log('Ошибка WebSocket: ' + error);
+                };
+
+            } catch (error) {
+                log('Ошибка создания WebSocket: ' + error);
+                updateConnectionStatus('Ошибка', 'status-disconnected');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+                log('WebSocket соединение закрыто пользователем');
+            }
+        }
+
+        function getStatus() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send('getStatus');
+                log('Запрошен статус машины');
+            } else {
+                log('WebSocket не подключен');
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function getWebSocketInfo() {
+            fetch('/api/websocket/info')
+                .then(response => response.json())
+                .then(data => {
+                    const infoDiv = document.getElementById('websocketInfo');
+                    infoDiv.innerHTML = `
+                    <div><strong>Подключений:</strong> ${data.connectionCount}</div>
+                    <div><strong>Режим:</strong> ${data.realtimeMode ? 'Реалтаймовый' : 'Периодический'}</div>
+                    <div><strong>Частота:</strong> По изменениям состояния машины</div>
+                `;
+                    log('Получена информация о WebSocket');
+                })
+                .catch(error => {
+                    log('Ошибка получения информации: ' + error);
+                });
+        }
+
+        function updateMachineStatus(status) {
+            const container = document.getElementById('machineStatus');
+
+            let html = `
+                <div><strong>Включена:</strong> ${status.enabled ? 'Да' : 'Нет'}</div>
+                <div><strong>Занята:</strong> ${status.busy ? 'Да' : 'Нет'}</div>
+                <div><strong>Выполнен хоминг:</strong> ${status.homed ? 'Да' : 'Нет'}</div>
+                <div><strong>Тип планировщика движения:</strong> ${status.motionPlannerType || 'Не указан'}</div>
+            `;
+
+            if (status.axes && status.axes.length > 0) {
+                html += '<h4>Оси:</h4><div class="axis-info">';
+                status.axes.forEach(axis => {
+                    html += `
+                        <div class="axis-item">
+                            <div><strong>${axis.name}</strong> (${axis.id})</div>
+                            <div>Тип: ${axis.type}</div>
+                            <div>Позиция: ${axis.position} ${axis.unit}</div>
+                            <div>Хоминг: ${axis.homed ? 'Да' : 'Нет'}</div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+            }
+
+            if (status.heads && status.heads.length > 0) {
+                html += '<h4>Головки:</h4>';
+                status.heads.forEach(head => {
+                    html += `
+                        <div class="head-info">
+                            <div><strong>${head.name}</strong> (${head.id})</div>
+                            <div>Дюзы: ${head.nozzleIds.join(', ') || 'Нет'}</div>
+                            <div>Камеры: ${head.cameraIds.join(', ') || 'Нет'}</div>
+                            <div>Актуаторы: ${head.actuatorIds.join(', ') || 'Нет'}</div>
+                        </div>
+                    `;
+                });
+            }
+
+            if (status.feeders && status.feeders.length > 0) {
+                html += '<h4>Фидеры:</h4>';
+                status.feeders.forEach(feeder => {
+                    html += `
+                        <div class="feeder-info">
+                            <div><strong>${feeder.name}</strong> (${feeder.id})</div>
+                            <div>Тип: ${feeder.type}</div>
+                            <div>Включен: ${feeder.enabled ? 'Да' : 'Нет'}</div>
+                            <div>Часть: ${feeder.partId || 'Не указана'}</div>
+                        </div>
+                    `;
+                });
+            }
+
+            container.innerHTML = html;
+        }
+
+        // Автоматическое подключение при загрузке страницы
+        window.onload = function () {
+            log('Страница загружена, автоматическое подключение...');
+            setTimeout(connect, 1000);
+        };
+
+        // Обработка закрытия страницы
+        window.onbeforeunload = function () {
+            if (ws) {
+                ws.close();
+            }
+        };
+    </script>
+</body>
+
+</html>

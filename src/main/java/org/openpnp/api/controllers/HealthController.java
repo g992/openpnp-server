@@ -69,6 +69,9 @@ public class HealthController {
             endpoints.put("/api", "Информация об API");
             endpoints.put("/swagger", "Swagger UI документация");
             endpoints.put("/redoc", "ReDoc документация");
+            endpoints.put("/api/machine/*", "Управление машиной (статус, включение, хоминг)");
+            endpoints.put("/api/job/*", "Управление заданиями (загрузка, запуск, мониторинг)");
+            endpoints.put("/api/diagnostics/*", "Диагностика конфигурации и проблем");
 
             ApiInfo apiInfo = new ApiInfo(
                     "OpenPnP API",
@@ -132,6 +135,25 @@ public class HealthController {
                 "<strong><code>GET /api</code></strong><br>" +
                 "Общая информация об API" +
                 "</div>" +
+
+                "<div class=\"endpoint\">" +
+                "<strong><code>GET /api/machine/status</code></strong><br>" +
+                "Статус машины и её компонентов" +
+                "</div>" +
+
+                "<div class=\"endpoint\">" +
+                "<strong><code>POST /api/machine/enable</code></strong><br>" +
+                "Включить машину" +
+                "</div>" +
+
+                "<div class=\"endpoint\">" +
+                "<strong><code>GET /api/diagnostics/configuration</code></strong><br>" +
+                "Диагностика конфигурации системы" +
+                "</div>" +
+
+                "<p><strong>🔧 При проблемах с включением машины, сначала проверьте:</strong><br>" +
+                "1. <a href=\"/api/diagnostics/configuration\" target=\"_blank\">Диагностику конфигурации</a><br>" +
+                "2. <a href=\"/api/machine/status\" target=\"_blank\">Статус машины</a></p>" +
 
                 "<p><em>Версия: " + Main.getVersion() + "</em></p>" +
                 "</div>" +

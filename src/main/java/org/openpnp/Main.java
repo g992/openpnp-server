@@ -34,6 +34,7 @@ import org.openpnp.gui.components.ThemeSettingsPanel;
 import org.openpnp.logging.ConsoleWriter;
 import org.openpnp.logging.SystemLogger;
 import org.openpnp.model.Configuration;
+import org.openpnp.api.listeners.RealtimeWebSocketListener;
 import org.pmw.tinylog.Configurator;
 import org.pmw.tinylog.Level;
 import org.pmw.tinylog.Logger;
@@ -205,6 +206,14 @@ public class Main {
                             "Bienvenue, Bienvenido, Willkommen, Hello, Namaskar, Welkom, Bonjour to OpenPnP version %s.",
                             Main.getVersion()));
                     configuration.getScripting().on("Startup", null);
+                    // Инициализируем реалтаймовый WebSocket слушатель событий машины
+                    if (configuration.getMachine() != null) {
+                        RealtimeWebSocketListener realtimeListener = new RealtimeWebSocketListener();
+                        realtimeListener.initialize(configuration.getMachine());
+                        Logger.info("Realtime WebSocket listener initialized");
+                    } else {
+                        Logger.info("Machine not configured, realtime WebSocket listener not initialized");
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
