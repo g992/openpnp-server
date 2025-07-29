@@ -103,11 +103,23 @@ public class CameraStreamService {
                 }
 
                 // Логируем информацию об изображении для диагностики
-                Logger.debug("Камера {}: тип изображения: {}, размер: {}x{}",
-                        cameraId, image.getType(), image.getWidth(), image.getHeight());
+                Logger.debug("Камера {}: тип изображения: {}, размер: {}x{}, цветовая модель: {}, битовая глубина: {}",
+                        cameraId, image.getType(), image.getWidth(), image.getHeight(),
+                        image.getColorModel().getClass().getSimpleName(),
+                        image.getColorModel().getPixelSize());
 
                 // Конвертируем в Base64
-                String base64Image = convertToBase64(image, quality);
+                String base64Image;
+                try {
+                    base64Image = convertToBase64(image, quality);
+                } catch (Exception e) {
+                    Logger.warn("Не удалось конвертировать изображение камеры {}, используем тестовое изображение: {}",
+                            cameraId, e.getMessage());
+
+                    // Создаем тестовое изображение
+                    BufferedImage testImage = createTestImage(image.getWidth(), image.getHeight());
+                    base64Image = convertToBase64(testImage, quality);
+                }
 
                 // Отправляем данные
                 CameraFrameData frameData = new CameraFrameData();
@@ -123,8 +135,14 @@ public class CameraStreamService {
                 wsContext.send(json);
 
             } catch (Exception e) {
-                Logger.error("Ошибка стрима камеры {}: {}", cameraId, e.getMessage(), e);
-                sendError("Ошибка стрима: " + e.getMessage());
+                long currentTime = System.currentTimeMillis();
+                if (currentTime - lastErrorTime > ERROR_THROTTLE_MS) {
+                    Logger.error("Ошибка стрима камеры {}: {}", cameraId, e.getMessage(), e);
+                    sendError("Ошибка стрима: " + e.getMessage());
+                    lastErrorTime = currentTime;
+                } else {
+                    Logger.debug("Ошибка стрима камеры {} (подавлена): {}", cameraId, e.getMessage());
+                }
             }
         }
 
@@ -145,8 +163,11 @@ public class CameraStreamService {
                     break;
             }
 
+            // Принудительно конвертируем изображение в стандартный формат
+            BufferedImage standardImage = forceConvertToStandard(image);
+
             // Конвертируем изображение в RGB формат если необходимо
-            BufferedImage rgbImage = convertToRGB(image);
+            BufferedImage rgbImage = convertToRGB(standardImage);
 
             try {
                 // Конвертируем в JPEG с настраиваемым качеством
@@ -170,7 +191,14 @@ public class CameraStreamService {
                 if (ImageIO.write(rgbImage, "jpeg", baos)) {
                     return Base64.getEncoder().encodeToString(baos.toByteArray());
                 } else {
-                    throw new Exception("Не удалось конвертировать изображение в JPEG");
+                    // Если JPEG не работает, пробуем PNG
+                    Logger.warn("JPEG не работает, пробуем PNG формат");
+                    baos.reset();
+                    if (ImageIO.write(rgbImage, "png", baos)) {
+                        return Base64.getEncoder().encodeToString(baos.toByteArray());
+                    } else {
+                        throw new Exception("Не удалось конвертировать изображение ни в JPEG, ни в PNG");
+                    }
                 }
             }
         }
@@ -179,15 +207,7 @@ public class CameraStreamService {
          * Конвертирует изображение в RGB формат для совместимости с JPEG
          */
         private BufferedImage convertToRGB(BufferedImage image) {
-            // Проверяем, нужно ли конвертировать
-            if (image.getType() == BufferedImage.TYPE_INT_RGB ||
-                    image.getType() == BufferedImage.TYPE_3BYTE_BGR ||
-                    image.getType() == BufferedImage.TYPE_INT_ARGB ||
-                    image.getType() == BufferedImage.TYPE_4BYTE_ABGR) {
-                return image; // Уже в подходящем формате
-            }
-
-            // Логируем конвертацию для диагностики
+            // Всегда конвертируем для надежности
             Logger.debug("Конвертируем изображение из типа {} в RGB", image.getType());
 
             try {
@@ -197,7 +217,7 @@ public class CameraStreamService {
                         image.getHeight(),
                         BufferedImage.TYPE_INT_RGB);
 
-                // Копируем пиксели
+                // Копируем пиксели через Graphics2D
                 java.awt.Graphics2D g2d = rgbImage.createGraphics();
                 g2d.drawImage(image, 0, 0, null);
                 g2d.dispose();
@@ -206,34 +226,125 @@ public class CameraStreamService {
             } catch (Exception e) {
                 Logger.warn("Ошибка при конвертации изображения типа {}: {}", image.getType(), e.getMessage());
 
-                // Создаем пустое RGB изображение как fallback
-                BufferedImage fallbackImage = new BufferedImage(
+                // Пробуем альтернативный метод - создаем изображение из данных пикселей
+                try {
+                    return createRGBFromPixels(image);
+                } catch (Exception e2) {
+                    Logger.warn("Альтернативная конвертация также не удалась: {}", e2.getMessage());
+
+                    // Создаем пустое RGB изображение как fallback
+                    BufferedImage fallbackImage = new BufferedImage(
+                            image.getWidth(),
+                            image.getHeight(),
+                            BufferedImage.TYPE_INT_RGB);
+
+                    // Заполняем черным цветом
+                    java.awt.Graphics2D g2d = fallbackImage.createGraphics();
+                    g2d.setColor(java.awt.Color.BLACK);
+                    g2d.fillRect(0, 0, image.getWidth(), image.getHeight());
+                    g2d.dispose();
+
+                    return fallbackImage;
+                }
+            }
+        }
+
+        /**
+         * Альтернативный метод конвертации через данные пикселей
+         */
+        private BufferedImage createRGBFromPixels(BufferedImage image) {
+            int width = image.getWidth();
+            int height = image.getHeight();
+
+            BufferedImage rgbImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+
+            // Получаем данные пикселей
+            int[] pixels = new int[width * height];
+            image.getRGB(0, 0, width, height, pixels, 0, width);
+
+            // Устанавливаем пиксели в RGB изображение
+            rgbImage.setRGB(0, 0, width, height, pixels, 0, width);
+
+            return rgbImage;
+        }
+
+        /**
+         * Принудительно конвертирует изображение в стандартный формат
+         */
+        private BufferedImage forceConvertToStandard(BufferedImage image) {
+            try {
+                // Создаем новое изображение с принудительной конвертацией
+                BufferedImage converted = new BufferedImage(
                         image.getWidth(),
                         image.getHeight(),
                         BufferedImage.TYPE_INT_RGB);
 
-                // Заполняем черным цветом
-                java.awt.Graphics2D g2d = fallbackImage.createGraphics();
-                g2d.setColor(java.awt.Color.BLACK);
-                g2d.fillRect(0, 0, image.getWidth(), image.getHeight());
+                // Используем более надежный метод копирования
+                java.awt.Graphics2D g2d = converted.createGraphics();
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION,
+                        java.awt.RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_RENDERING,
+                        java.awt.RenderingHints.VALUE_RENDER_QUALITY);
+                g2d.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
+                        java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
+
+                g2d.drawImage(image, 0, 0, null);
                 g2d.dispose();
 
-                return fallbackImage;
+                return converted;
+            } catch (Exception e) {
+                Logger.warn("Принудительная конвертация не удалась: {}", e.getMessage());
+                return image; // Возвращаем оригинал если не удалось
             }
         }
 
-        private void sendError(String error) {
-            try {
-                CameraFrameData errorData = new CameraFrameData();
-                errorData.type = "error";
-                errorData.cameraId = cameraId;
-                errorData.timestamp = System.currentTimeMillis();
-                errorData.error = error;
+        /**
+         * Создает тестовое изображение с информацией о камере
+         */
+        private BufferedImage createTestImage(int width, int height) {
+            BufferedImage testImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            java.awt.Graphics2D g2d = testImage.createGraphics();
 
-                String json = objectMapper.writeValueAsString(errorData);
-                wsContext.send(json);
-            } catch (Exception e) {
-                Logger.error("Ошибка отправки сообщения об ошибке: {}", e.getMessage());
+            // Заполняем фон
+            g2d.setColor(java.awt.Color.DARK_GRAY);
+            g2d.fillRect(0, 0, width, height);
+
+            // Добавляем текст
+            g2d.setColor(java.awt.Color.WHITE);
+            g2d.setFont(new java.awt.Font("Arial", java.awt.Font.BOLD, 16));
+            String text = "Camera: " + cameraId;
+            java.awt.FontMetrics fm = g2d.getFontMetrics();
+            int textX = (width - fm.stringWidth(text)) / 2;
+            int textY = height / 2;
+            g2d.drawString(text, textX, textY);
+
+            g2d.setFont(new java.awt.Font("Arial", java.awt.Font.PLAIN, 12));
+            String info = "Stream Error - Using Test Image";
+            fm = g2d.getFontMetrics();
+            textX = (width - fm.stringWidth(info)) / 2;
+            textY = height / 2 + 20;
+            g2d.drawString(info, textX, textY);
+
+            g2d.dispose();
+            return testImage;
+        }
+
+        private void sendError(String error) {
+            long currentTime = System.currentTimeMillis();
+            if (currentTime - lastErrorTime > ERROR_THROTTLE_MS) {
+                try {
+                    CameraFrameData errorData = new CameraFrameData();
+                    errorData.type = "error";
+                    errorData.cameraId = cameraId;
+                    errorData.timestamp = currentTime;
+                    errorData.error = error;
+
+                    String json = objectMapper.writeValueAsString(errorData);
+                    wsContext.send(json);
+                    lastErrorTime = currentTime;
+                } catch (Exception e) {
+                    Logger.error("Ошибка отправки сообщения об ошибке: {}", e.getMessage());
+                }
             }
         }
 

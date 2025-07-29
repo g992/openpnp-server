@@ -315,9 +315,17 @@
                     break;
                 case 'stream_started':
                     log(`Стрим камеры ${data.cameraId} запущен с FPS: ${data.fps}`);
+                    // Обновляем состояние стрима
+                    activeStreams.set(data.cameraId, { fps: data.fps, quality: 'medium' });
+                    updateCameraControls();
+                    updateStats();
                     break;
                 case 'stream_stopped':
                     log('Стрим остановлен');
+                    // Очищаем все активные стримы
+                    activeStreams.clear();
+                    updateCameraControls();
+                    updateStats();
                     break;
                 case 'frame':
                     handleFrame(data);
@@ -351,7 +359,22 @@
             if (streamContainer) {
                 const img = streamContainer.querySelector('img');
                 if (img) {
-                    img.src = 'data:image/jpeg;base64,' + data.image;
+                    img.onload = function () {
+                        img.style.display = 'block'; // Показываем изображение после загрузки
+                    };
+                    img.onerror = function () {
+                        log('Ошибка загрузки изображения для камеры ' + data.cameraId);
+                        img.style.display = 'none';
+                    };
+                    // Определяем формат изображения (JPEG или PNG)
+                    const imageFormat = data.image.startsWith('/9j/') ? 'jpeg' : 'png';
+                    img.src = `data:image/${imageFormat};base64,${data.image}`;
+                }
+
+                // Скрываем текст "Стрим неактивен"
+                const statusText = streamContainer.querySelector('.camera-stream div');
+                if (statusText && statusText.textContent.includes('неактивен')) {
+                    statusText.style.display = 'none';
                 }
 
                 const fpsCounter = streamContainer.querySelector('.fps-counter');
@@ -399,7 +422,9 @@
                 ws.send(JSON.stringify(message));
                 log(`Запуск стрима камеры ${cameraId} с FPS: ${fps}, качество: ${quality}`);
 
+                // Временно обновляем состояние для UI
                 activeStreams.set(cameraId, { fps, quality });
+                updateCameraControls();
                 updateStats();
             } else {
                 log('WebSocket не подключен');
@@ -411,7 +436,9 @@
                 ws.send(JSON.stringify({ command: 'stop_stream' }));
                 log(`Остановка стрима камеры ${cameraId}`);
 
+                // Временно обновляем состояние для UI
                 activeStreams.delete(cameraId);
+                updateCameraControls();
                 updateStats();
             } else {
                 log('WebSocket не подключен');
@@ -480,8 +507,12 @@
                 // Показываем изображение если стрим активен
                 if (isStreaming) {
                     const img = panel.querySelector('img');
+                    const statusText = panel.querySelector('.camera-stream div');
                     if (img) {
                         img.style.display = 'block';
+                    }
+                    if (statusText && statusText.textContent.includes('неактивен')) {
+                        statusText.style.display = 'none';
                     }
                 }
             });
