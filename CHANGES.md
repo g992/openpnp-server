@@ -5,6 +5,7 @@ a complete change list, only those that may directly interest or affect users.
 
 ## New Features
 
+* **WebSocket API для управления перемещением машины** - добавлена поддержка управления перемещением через WebSocket соединения с командами для перемещения по всем осям (X, Y, Z, Rotation), хоминга и остановки
 * Optimize fiducial checking in job using travelling salesman. [PR 1707](https://github.com/openpnp/openpnp/pull/1707)
 * I&S supports controllers which send compressed position reports without whitespaces between the axes. [PR 1705](https://github.com/openpnp/openpnp/pull/1705)
 * An option to skip auto-focus calibration of the up looking camera via issues & solutions. [PR 1700](https://github.com/openpnp/openpnp/pull/1700)

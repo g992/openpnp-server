@@ -1,0 +1,606 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPnP WebSocket Movement Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .panel {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-panel {
+            grid-column: 1 / -1;
+        }
+
+        h1,
+        h2 {
+            color: #333;
+            margin-top: 0;
+        }
+
+        .connection-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+
+        input,
+        select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+
+        button:hover {
+            background-color: #0056b3;
+        }
+
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+
+        .danger {
+            background-color: #dc3545;
+        }
+
+        .danger:hover {
+            background-color: #c82333;
+        }
+
+        .success {
+            background-color: #28a745;
+        }
+
+        .success:hover {
+            background-color: #218838;
+        }
+
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+
+        .log-info {
+            color: #007bff;
+        }
+
+        .coordinates-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .axis-controls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .quick-actions {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>OpenPnP WebSocket Movement Test</h1>
+
+    <div class="status-panel panel">
+        <h2>Статус соединения</h2>
+        <div id="connectionStatus" class="connection-status disconnected">
+            Отключено
+        </div>
+        <button id="connectBtn" onclick="connect()">Подключиться</button>
+        <button id="disconnectBtn" onclick="disconnect()" disabled>Отключиться</button>
+        <button onclick="getStatus()">Обновить статус</button>
+    </div>
+
+    <div class="container">
+        <div class="panel">
+            <h2>Перемещение в позицию</h2>
+            <div class="form-group">
+                <label for="headMountable">Компонент:</label>
+                <select id="headMountable">
+                    <option value="">Загрузка...</option>
+                </select>
+                <button onclick="refreshHeadMountables()" style="margin-top: 5px;">Обновить список</button>
+            </div>
+
+            <div class="coordinates-grid">
+                <div class="form-group">
+                    <label for="x">X (мм):</label>
+                    <input type="number" id="x" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="y">Y (мм):</label>
+                    <input type="number" id="y" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="z">Z (мм):</label>
+                    <input type="number" id="z" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="rotation">Rotation (°):</label>
+                    <input type="number" id="rotation" step="1" placeholder="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="speed">Скорость (0.0-1.0):</label>
+                <input type="number" id="speed" min="0" max="1" step="0.1" value="0.5">
+            </div>
+
+            <button onclick="moveToPosition()">Переместиться</button>
+            <button onclick="clearCoordinates()">Очистить</button>
+        </div>
+
+        <div class="panel">
+            <h2>Перемещение по осям</h2>
+            <div class="form-group">
+                <label for="axisHeadMountable">Компонент:</label>
+                <select id="axisHeadMountable">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+
+            <div class="axis-controls">
+                <div class="form-group">
+                    <label for="axisX">X (мм):</label>
+                    <input type="number" id="axisX" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="axisY">Y (мм):</label>
+                    <input type="number" id="axisY" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="axisZ">Z (мм):</label>
+                    <input type="number" id="axisZ" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="axisRotation">Rotation (°):</label>
+                    <input type="number" id="axisRotation" step="1" placeholder="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="axisSpeed">Скорость (0.0-1.0):</label>
+                <input type="number" id="axisSpeed" min="0" max="1" step="0.1" value="0.5">
+            </div>
+
+            <button onclick="moveAxis('X')">X</button>
+            <button onclick="moveAxis('Y')">Y</button>
+            <button onclick="moveAxis('Z')">Z</button>
+            <button onclick="moveAxis('ROTATION')">Rotation</button>
+        </div>
+
+        <div class="panel">
+            <h2>Относительное перемещение (Jogging)</h2>
+            <div class="form-group">
+                <label for="jogHeadMountable">Компонент:</label>
+                <select id="jogHeadMountable">
+                    <option value="">Загрузка...</option>
+                </select>
+            </div>
+
+            <div class="axis-controls">
+                <div class="form-group">
+                    <label for="jogX">X смещение (мм):</label>
+                    <input type="number" id="jogX" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="jogY">Y смещение (мм):</label>
+                    <input type="number" id="jogY" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="jogZ">Z смещение (мм):</label>
+                    <input type="number" id="jogZ" step="0.1" placeholder="0">
+                </div>
+                <div class="form-group">
+                    <label for="jogRotation">Rotation смещение (°):</label>
+                    <input type="number" id="jogRotation" step="1" placeholder="0">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label for="jogSpeed">Скорость (0.0-1.0):</label>
+                <input type="number" id="jogSpeed" min="0" max="1" step="0.1" value="0.5">
+            </div>
+
+            <button onclick="jogAxis('X')">X +</button>
+            <button onclick="jogAxis('Y')">Y +</button>
+            <button onclick="jogAxis('Z')">Z +</button>
+            <button onclick="jogAxis('ROTATION')">Rotation +</button>
+
+            <button onclick="jogAxisNegative('X')">X -</button>
+            <button onclick="jogAxisNegative('Y')">Y -</button>
+            <button onclick="jogAxisNegative('Z')">Z -</button>
+            <button onclick="jogAxisNegative('ROTATION')">Rotation -</button>
+        </div>
+
+        <div class="panel">
+            <h2>Быстрые действия</h2>
+            <div class="quick-actions">
+                <button class="success" onclick="homeMachine()">Хоминг машины</button>
+                <button class="success" onclick="homeComponent()">Хоминг компонента</button>
+                <button onclick="moveToSafeZ()">Safe Z</button>
+                <button onclick="getPosition()">Получить позицию</button>
+                <button onclick="ping()">Ping</button>
+            </div>
+
+            <h3>Остановка</h3>
+            <button class="danger" onclick="stopMachine()">Аварийная остановка</button>
+            <button onclick="stopComponent()">Остановить компонент</button>
+        </div>
+
+        <div class="panel">
+            <h2>Лог сообщений</h2>
+            <div id="log" class="log"></div>
+            <button onclick="clearLog()">Очистить лог</button>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+
+        function updateConnectionStatus() {
+            const statusDiv = document.getElementById('connectionStatus');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            if (isConnected) {
+                statusDiv.textContent = 'Подключено';
+                statusDiv.className = 'connection-status connected';
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                statusDiv.textContent = 'Отключено';
+                statusDiv.className = 'connection-status disconnected';
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function connect() {
+            try {
+                ws = new WebSocket('ws://localhost:8080/ws/machine-status');
+
+                ws.onopen = function () {
+                    isConnected = true;
+                    updateConnectionStatus();
+                    log('WebSocket соединение установлено', 'success');
+                    getStatus();
+                    refreshHeadMountables();
+                };
+
+                ws.onmessage = function (event) {
+                    const message = event.data;
+
+                    if (message.startsWith('success:')) {
+                        log('Успех: ' + message.substring(8), 'success');
+                    } else if (message.startsWith('error:')) {
+                        log('Ошибка: ' + message.substring(6), 'error');
+                    } else if (message.startsWith('headMountables:')) {
+                        handleHeadMountablesResponse(message);
+                    } else {
+                        try {
+                            const status = JSON.parse(message);
+                            log('Получен статус машины', 'info');
+                            console.log('Статус:', status);
+                        } catch (e) {
+                            log('Сообщение: ' + message, 'info');
+                        }
+                    }
+                };
+
+                ws.onerror = function (error) {
+                    log('Ошибка WebSocket: ' + error, 'error');
+                };
+
+                ws.onclose = function () {
+                    isConnected = false;
+                    updateConnectionStatus();
+                    log('WebSocket соединение закрыто', 'error');
+                };
+
+            } catch (error) {
+                log('Ошибка подключения: ' + error.message, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function sendCommand(command) {
+            if (!isConnected) {
+                log('Нет соединения с сервером', 'error');
+                return;
+            }
+            log('Отправка команды: ' + command, 'info');
+            ws.send(command);
+        }
+
+        function getStatus() {
+            sendCommand('getStatus');
+        }
+
+        function moveToPosition() {
+            const headMountable = document.getElementById('headMountable').value;
+            const x = document.getElementById('x').value || 'NaN';
+            const y = document.getElementById('y').value || 'NaN';
+            const z = document.getElementById('z').value || 'NaN';
+            const rotation = document.getElementById('rotation').value || 'NaN';
+            const speed = document.getElementById('speed').value || '0.5';
+
+            const command = `move:${headMountable}:${x}:${y}:${z}:${rotation}:${speed}`;
+            sendCommand(command);
+        }
+
+        function moveAxis(axisType) {
+            const headMountable = document.getElementById('axisHeadMountable').value;
+            const speed = document.getElementById('axisSpeed').value || '0.5';
+
+            let coordinate = '0';
+            switch (axisType) {
+                case 'X':
+                    coordinate = document.getElementById('axisX').value || '0';
+                    break;
+                case 'Y':
+                    coordinate = document.getElementById('axisY').value || '0';
+                    break;
+                case 'Z':
+                    coordinate = document.getElementById('axisZ').value || '0';
+                    break;
+                case 'ROTATION':
+                    coordinate = document.getElementById('axisRotation').value || '0';
+                    break;
+            }
+
+            const command = `moveAxis:${headMountable}:${axisType}:${coordinate}:${speed}`;
+            sendCommand(command);
+        }
+
+        function jogAxis(axisType) {
+            const headMountable = document.getElementById('jogHeadMountable').value;
+            const speed = document.getElementById('jogSpeed').value || '0.5';
+
+            let offset = '0';
+            switch (axisType) {
+                case 'X':
+                    offset = document.getElementById('jogX').value || '1';
+                    break;
+                case 'Y':
+                    offset = document.getElementById('jogY').value || '1';
+                    break;
+                case 'Z':
+                    offset = document.getElementById('jogZ').value || '1';
+                    break;
+                case 'ROTATION':
+                    offset = document.getElementById('jogRotation').value || '1';
+                    break;
+            }
+
+            const command = `jog:${headMountable}:${axisType}:${offset}:${speed}`;
+            sendCommand(command);
+        }
+
+        function jogAxisNegative(axisType) {
+            const headMountable = document.getElementById('jogHeadMountable').value;
+            const speed = document.getElementById('jogSpeed').value || '0.5';
+
+            let offset = '0';
+            switch (axisType) {
+                case 'X':
+                    offset = -(document.getElementById('jogX').value || '1');
+                    break;
+                case 'Y':
+                    offset = -(document.getElementById('jogY').value || '1');
+                    break;
+                case 'Z':
+                    offset = -(document.getElementById('jogZ').value || '1');
+                    break;
+                case 'ROTATION':
+                    offset = -(document.getElementById('jogRotation').value || '1');
+                    break;
+            }
+
+            const command = `jog:${headMountable}:${axisType}:${offset}:${speed}`;
+            sendCommand(command);
+        }
+
+        function getPosition() {
+            const headMountable = document.getElementById('headMountable').value;
+            if (headMountable) {
+                sendCommand(`getPosition:${headMountable}`);
+            }
+        }
+
+        function homeMachine() {
+            sendCommand('home:all');
+        }
+
+        function homeComponent() {
+            const headMountable = document.getElementById('headMountable').value;
+            sendCommand(`home:${headMountable}`);
+        }
+
+        function moveToSafeZ() {
+            const headMountable = document.getElementById('headMountable').value;
+            sendCommand(`move:${headMountable}:NaN:NaN:50:NaN:0.5`);
+        }
+
+        function stopMachine() {
+            if (confirm('Вы уверены, что хотите выполнить аварийную остановку?')) {
+                sendCommand('stop:all');
+            }
+        }
+
+        function stopComponent() {
+            const headMountable = document.getElementById('headMountable').value;
+            sendCommand(`stop:${headMountable}`);
+        }
+
+        function ping() {
+            sendCommand('ping');
+        }
+
+        function clearCoordinates() {
+            document.getElementById('x').value = '';
+            document.getElementById('y').value = '';
+            document.getElementById('z').value = '';
+            document.getElementById('rotation').value = '';
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function refreshHeadMountables() {
+            sendCommand('getHeadMountables');
+        }
+
+        function handleHeadMountablesResponse(message) {
+            const parts = message.substring(15); // Убираем 'headMountables:'
+            const components = parts.split(';').filter(comp => comp.trim() !== '');
+
+            const headMountableSelect = document.getElementById('headMountable');
+            const axisHeadMountableSelect = document.getElementById('axisHeadMountable');
+            const jogHeadMountableSelect = document.getElementById('jogHeadMountable');
+
+            // Очищаем существующие опции
+            headMountableSelect.innerHTML = '';
+            axisHeadMountableSelect.innerHTML = '';
+            jogHeadMountableSelect.innerHTML = '';
+
+            if (components.length === 0) {
+                headMountableSelect.innerHTML = '<option value="">Нет доступных компонентов</option>';
+                axisHeadMountableSelect.innerHTML = '<option value="">Нет доступных компонентов</option>';
+                jogHeadMountableSelect.innerHTML = '<option value="">Нет доступных компонентов</option>';
+                log('Нет доступных HeadMountable компонентов', 'error');
+                return;
+            }
+
+            components.forEach(component => {
+                const [id, name, type] = component.split(':');
+                const displayText = `${name} (${id}) - ${type}`;
+
+                // Добавляем в первый селект
+                const option1 = document.createElement('option');
+                option1.value = id;
+                option1.textContent = displayText;
+                headMountableSelect.appendChild(option1);
+
+                // Добавляем во второй селект
+                const option2 = document.createElement('option');
+                option2.value = id;
+                option2.textContent = displayText;
+                axisHeadMountableSelect.appendChild(option2);
+
+                // Добавляем в третий селект (jogging)
+                const option3 = document.createElement('option');
+                option3.value = id;
+                option3.textContent = displayText;
+                jogHeadMountableSelect.appendChild(option3);
+            });
+
+            log(`Загружено ${components.length} HeadMountable компонентов`, 'success');
+        }
+
+        // Инициализация
+        updateConnectionStatus();
+        log('Готов к подключению', 'info');
+    </script>
+</body>
+
+</html>
