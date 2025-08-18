@@ -32,6 +32,11 @@ public class KlipperCommunications extends ReferenceDriverCommunications {
     public synchronized void connect() throws Exception {
         disconnect();
         try {
+            File socketFile = new File(socketPath);
+            if (!socketFile.exists()) {
+                throw new IOException("Klipper UNIX socket not found: " + socketPath
+                        + ". Start Klipper or adjust the socket path.");
+            }
             Class<?> socketClass = Class.forName("org.newsclub.net.unix.AFUNIXSocket");
             Class<?> addrClass = Class.forName("org.newsclub.net.unix.AFUNIXSocketAddress");
 
@@ -52,6 +57,12 @@ public class KlipperCommunications extends ReferenceDriverCommunications {
             output = new DataOutputStream((OutputStream) getOutputStream.invoke(sock));
         } catch (ClassNotFoundException e) {
             throw new IOException("junixsocket library not found. Ensure junixsocket-core is on classpath.", e);
+        } catch (ReflectiveOperationException e) {
+            throw new IOException("Klipper UNIX socket connection failed (reflection error): " + e.getMessage(), e);
+        } catch (Throwable t) {
+            // Любые ошибки соединения упакуем с понятным сообщением
+            throw new IOException("Failed to connect to Klipper at '" + socketPath + "': "
+                    + (t.getMessage() == null ? t.getClass().getSimpleName() : t.getMessage()), t);
         }
     }
 
