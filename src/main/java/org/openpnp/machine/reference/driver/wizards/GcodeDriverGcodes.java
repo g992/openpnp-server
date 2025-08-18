@@ -12,7 +12,6 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.FilenameFilter;
-import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.HashMap;
 
@@ -35,6 +34,7 @@ import org.openpnp.gui.support.AbstractConfigurationWizard;
 import org.openpnp.gui.support.Icons;
 import org.openpnp.gui.support.MessageBoxes;
 import org.openpnp.machine.reference.driver.GcodeDriver;
+import org.openpnp.machine.reference.driver.AbstractReferenceDriver.CommunicationsType;
 import org.openpnp.machine.reference.driver.GcodeDriver.Command;
 import org.openpnp.machine.reference.driver.GcodeDriver.CommandType;
 import org.openpnp.model.Configuration;
@@ -65,11 +65,11 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 TitledBorder.LEADING, TitledBorder.TOP, null));
         contentPanel.add(gcodePanel);
         gcodePanel.setLayout(new FormLayout(
-                new ColumnSpec[] {FormSpecs.RELATED_GAP_COLSPEC, ColumnSpec.decode("default:grow"),
-                        FormSpecs.RELATED_GAP_COLSPEC, ColumnSpec.decode("default:grow"),},
-                new RowSpec[] {FormSpecs.RELATED_GAP_ROWSPEC, FormSpecs.DEFAULT_ROWSPEC,
+                new ColumnSpec[] { FormSpecs.RELATED_GAP_COLSPEC, ColumnSpec.decode("default:grow"),
+                        FormSpecs.RELATED_GAP_COLSPEC, ColumnSpec.decode("default:grow"), },
+                new RowSpec[] { FormSpecs.RELATED_GAP_ROWSPEC, FormSpecs.DEFAULT_ROWSPEC,
                         FormSpecs.RELATED_GAP_ROWSPEC, FormSpecs.DEFAULT_ROWSPEC,
-                        FormSpecs.RELATED_GAP_ROWSPEC, RowSpec.decode("default:grow"),}));
+                        FormSpecs.RELATED_GAP_ROWSPEC, RowSpec.decode("default:grow"), }));
 
         JLabel lblHeadMountable = new JLabel(Translations.getString(
                 "GcodeDriverGcodes.GCodePanel.HeadMountableLabel.text"));
@@ -140,25 +140,28 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 FormSpecs.RELATED_GAP_COLSPEC,
                 FormSpecs.DEFAULT_COLSPEC,
                 FormSpecs.RELATED_GAP_COLSPEC,
-                FormSpecs.DEFAULT_COLSPEC,},
-            new RowSpec[] {
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,
-                FormSpecs.RELATED_GAP_ROWSPEC,
-                FormSpecs.DEFAULT_ROWSPEC,}));
+                FormSpecs.DEFAULT_COLSPEC, },
+                new RowSpec[] {
+                        FormSpecs.RELATED_GAP_ROWSPEC,
+                        FormSpecs.DEFAULT_ROWSPEC,
+                        FormSpecs.RELATED_GAP_ROWSPEC,
+                        FormSpecs.DEFAULT_ROWSPEC,
+                        FormSpecs.RELATED_GAP_ROWSPEC,
+                        FormSpecs.DEFAULT_ROWSPEC,
+                        FormSpecs.RELATED_GAP_ROWSPEC,
+                        FormSpecs.DEFAULT_ROWSPEC, }));
 
         JButton btnExportGcodeProfile = new JButton(exportProfileAction);
         importExportPanel.add(btnExportGcodeProfile, "2, 2");
 
         JButton btnCopyGcodeProfile = new JButton(copyProfileToClipboardAction);
         importExportPanel.add(btnCopyGcodeProfile, "2, 4");
-        
-//        JButton btnResetToDefaults = new JButton(resetToDefaultAction);
-//        importExportPanel.add(btnResetToDefaults, "2, 8");
+
+        JButton btnApplyDefaults = new JButton(applyDefaultsAction);
+        importExportPanel.add(btnApplyDefaults, "4, 2");
+
+        // JButton btnResetToDefaults = new JButton(resetToDefaultAction);
+        // importExportPanel.add(btnResetToDefaults, "2, 8");
 
         headMountableChanged();
         commandTypeChanged();
@@ -179,7 +182,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 commandTextChanged();
             }
         });
-        
+
         forceApplyResetButtonsVisible();
 
     }
@@ -212,7 +215,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
         for (CommandType type : CommandType.values()) {
             if (hm == null || type.isHeadMountable()) {
                 if (hasCommand(hm, type) || !type.isDeprecated()) {
-                    // Only if the command is set (perhaps a legacy setup) 
+                    // Only if the command is set (perhaps a legacy setup)
                     // or if it is not deprecated, do we add it.
                     comboBoxCommandType.addItem(type);
                 }
@@ -239,16 +242,14 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
             }
             if (text == null) {
                 textAreaCommand.setText("");
-            }
-            else {
+            } else {
                 textAreaCommand.setText(text);
             }
-        }
-        finally {
+        } finally {
             ignoreUpdates = false;
         }
     }
-    
+
     private void commandTextChanged() {
         if (ignoreUpdates) {
             return;
@@ -257,7 +258,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
         changes.put(new ChangeKey(getSelectedHeadMountable(), getSelectedCommandType()), text);
         notifyChange();
     }
-    
+
     @Override
     protected void loadFromModel() {
         super.loadFromModel();
@@ -319,8 +320,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 FileWriter w = new FileWriter(file);
                 s.write(driver, w);
                 w.close();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 MessageBoxes.errorBox(MainFrame.get(), "Export Failed", e);
             }
         }
@@ -349,10 +349,9 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 File file = new File(new File(fileDialog.getDirectory()), filename);
                 Serializer ser = Configuration.createSerializer();
                 FileReader r = new FileReader(file);
-                GcodeDriver d = ser.read(GcodeDriver.class, r);
+                ser.read(GcodeDriver.class, r);
                 // copySettings(d, driver);
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 MessageBoxes.errorBox(MainFrame.get(), "Import Failed", e);
             }
         }
@@ -376,8 +375,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 clipboard.setContents(stringSelection, null);
                 MessageBoxes.infoBox(Translations.getString("CommonPhrases.copiedGcode"), //$NON-NLS-1$
                         Translations.getString("CommonPhrases.copiedGcodeToClipboard")); //$NON-NLS-1$
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 MessageBoxes.errorBox(MainFrame.get(), "Copy Failed", e);
             }
         }
@@ -396,14 +394,54 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 Serializer ser = Configuration.createSerializer();
                 Clipboard clipboard = Toolkit.getDefaultToolkit().getSystemClipboard();
                 String s = (String) clipboard.getData(DataFlavor.stringFlavor);
-                StringReader r = new StringReader(s);
-                GcodeDriver d = ser.read(GcodeDriver.class, s);
-                // copySettings(d, driver);
+                ser.read(GcodeDriver.class, s);
                 MessageBoxes.infoBox(Translations.getString("CommonPhrases.pastedGcode"), //$NON-NLS-1$
                         Translations.getString("CommonPhrases.pastedGcodeFromClipboard")); //$NON-NLS-1$
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 MessageBoxes.errorBox(MainFrame.get(), "Paste Failed", e);
+            }
+        }
+    };
+
+    public final Action applyDefaultsAction = new AbstractAction() {
+        {
+            putValue(SMALL_ICON, Icons.refresh);
+            putValue(NAME, Translations.getString("GcodeDriverGcodes.Action.ApplyDefaults"));
+            putValue(SHORT_DESCRIPTION, Translations.getString("GcodeDriverGcodes.Action.ApplyDefaults.Description"));
+        }
+
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            try {
+                int ret = JOptionPane.showConfirmDialog(getTopLevelAncestor(),
+                        Translations.getString("GcodeDriverGcodes.Action.ApplyDefaults.Confirm"),
+                        Translations.getString("GcodeDriverGcodes.Action.ApplyDefaults.Title"),
+                        JOptionPane.YES_NO_OPTION,
+                        JOptionPane.QUESTION_MESSAGE);
+                if (ret != JOptionPane.YES_OPTION) {
+                    return;
+                }
+                // Базовые значения по умолчанию
+                driver.createDefaultCommands();
+                // Тонкая настройка по типу коммуникаций
+                CommunicationsType ct = driver.getCommunicationsType();
+                if (ct == CommunicationsType.klipper) {
+                    driver.setCommand(null, CommandType.COMMAND_CONFIRM_REGEX, "^ok.*");
+                    driver.setCommand(null, CommandType.COMMAND_ERROR_REGEX, "^(?:!!|error:).*");
+                    driver.setCommand(null, CommandType.GET_POSITION_COMMAND, "M114 ; get position");
+                    driver.setCommand(null, CommandType.HOME_COMMAND, "G28 ; Home all axes");
+                } else {
+                    // Generic/Marlin
+                    driver.setCommand(null, CommandType.COMMAND_CONFIRM_REGEX, "^ok.*");
+                    driver.setCommand(null, CommandType.COMMAND_ERROR_REGEX, null); // оставить пустым
+                    driver.setCommand(null, CommandType.GET_POSITION_COMMAND, "M114 ; get position");
+                    driver.setCommand(null, CommandType.HOME_COMMAND, "G28 ; Home all axes");
+                }
+                // Обновить UI/кнопки применить-сбросить
+                resetAction.actionPerformed(e);
+                commandTypeChanged();
+            } catch (Exception ex) {
+                MessageBoxes.errorBox(MainFrame.get(), "Apply Defaults Failed", ex);
             }
         }
     };
@@ -419,7 +457,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
             try {
                 int ret = JOptionPane.showConfirmDialog(getTopLevelAncestor(),
                         "This will delete all your Gcode and reset it to minimal defaults.\n"
-                        + "Are you absolutely sure?", 
+                                + "Are you absolutely sure?",
                         "Reset to defaults",
                         JOptionPane.YES_NO_OPTION,
                         JOptionPane.WARNING_MESSAGE);
@@ -427,8 +465,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                     driver.createDefaultCommands();
                     resetAction.actionPerformed(arg0);
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 MessageBoxes.errorBox(MainFrame.get(), "Reset Failed", e);
             }
         }
@@ -456,26 +493,25 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
             String type = null;
             if (hm instanceof Nozzle) {
                 type = "Nozzle";
-            }
-            else if (hm instanceof Camera) {
+            } else if (hm instanceof Camera) {
                 type = "Camera";
-            }
-            else if (hm instanceof Actuator) {
+            } else if (hm instanceof Actuator) {
                 type = "Actuator";
             }
-            return String.format("%s: %s %s", type, hm.getHead() == null ? "[No Head]" : hm.getHead().getName(), hm.getName());
+            return String.format("%s: %s %s", type, hm.getHead() == null ? "[No Head]" : hm.getHead().getName(),
+                    hm.getName());
         }
     }
-    
+
     class ChangeKey {
         final public HeadMountable hm;
         final public CommandType command;
-        
+
         public ChangeKey(HeadMountable hm, CommandType command) {
             this.hm = hm;
             this.command = command;
         }
-        
+
         @Override
         public int hashCode() {
             final int prime = 31;
@@ -485,6 +521,7 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
             result = prime * result + ((hm == null) ? 0 : hm.hashCode());
             return result;
         }
+
         @Override
         public boolean equals(Object obj) {
             if (this == obj) {
@@ -507,13 +544,12 @@ public class GcodeDriverGcodes extends AbstractConfigurationWizard {
                 if (other.hm != null) {
                     return false;
                 }
-            }
-            else if (!hm.equals(other.hm)) {
+            } else if (!hm.equals(other.hm)) {
                 return false;
             }
             return true;
         }
-        
+
         private GcodeDriverGcodes getOuterType() {
             return GcodeDriverGcodes.this;
         }
