@@ -22,6 +22,7 @@ public class CameraStreamService {
     private static final ConcurrentHashMap<String, CameraStreamSession> sessions = new ConcurrentHashMap<>();
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(4);
+    private static final Object sessionsLock = new Object(); // Объект для синхронизации
 
     /**
      * Запрос на стрим камеры
@@ -65,11 +66,26 @@ public class CameraStreamService {
         }
 
         private void streamFrame() {
+            // Проверяем активность сессии в самом начале
             if (!isActive.get()) {
+                Logger.debug("Сессия {} неактивна, пропускаем отправку кадра", sessionId);
                 return;
             }
 
             try {
+                // Дополнительная проверка состояния WebSocket соединения
+                if (wsContext == null || !wsContext.session.isOpen()) {
+                    Logger.warn("WebSocket соединение закрыто для сессии {}, останавливаем стрим", sessionId);
+                    stop();
+                    return;
+                }
+
+                // Еще раз проверяем активность после проверки соединения
+                if (!isActive.get()) {
+                    Logger.debug("Сессия {} стала неактивной после проверки соединения", sessionId);
+                    return;
+                }
+
                 Machine machine = Configuration.get().getMachine();
                 Camera camera = machine.getCamera(cameraId);
 
@@ -84,6 +100,7 @@ public class CameraStreamService {
                 }
 
                 if (camera == null) {
+                    Logger.warn("Камера с ID '{}' не найдена для сессии {}", cameraId, sessionId);
                     sendError("Камера с ID '" + cameraId + "' не найдена");
                     return;
                 }
@@ -91,37 +108,30 @@ public class CameraStreamService {
                 // Захватываем изображение
                 BufferedImage image = camera.capture();
                 if (image == null) {
+                    Logger.warn("Не удалось захватить изображение с камеры {} для сессии {}", cameraId, sessionId);
                     sendError("Не удалось захватить изображение с камеры");
                     return;
                 }
 
                 // Проверяем валидность изображения
                 if (image.getWidth() <= 0 || image.getHeight() <= 0) {
+                    Logger.warn("Получено изображение с некорректными размерами: {}x{} для камеры {} сессии {}",
+                            image.getWidth(), image.getHeight(), cameraId, sessionId);
                     sendError("Получено изображение с некорректными размерами: " + image.getWidth() + "x"
                             + image.getHeight());
                     return;
                 }
 
-                // Логируем информацию об изображении для диагностики
-                Logger.debug("Камера {}: тип изображения: {}, размер: {}x{}, цветовая модель: {}, битовая глубина: {}",
-                        cameraId, image.getType(), image.getWidth(), image.getHeight(),
-                        image.getColorModel().getClass().getSimpleName(),
-                        image.getColorModel().getPixelSize());
-
-                // Конвертируем в Base64
-                String base64Image;
-                try {
-                    base64Image = convertToBase64(image, quality);
-                } catch (Exception e) {
-                    Logger.warn("Не удалось конвертировать изображение камеры {}, используем тестовое изображение: {}",
-                            cameraId, e.getMessage());
-
-                    // Создаем тестовое изображение
-                    BufferedImage testImage = createTestImage(image.getWidth(), image.getHeight());
-                    base64Image = convertToBase64(testImage, quality);
+                // Финальная проверка активности перед отправкой
+                if (!isActive.get()) {
+                    Logger.debug("Сессия {} стала неактивной перед отправкой кадра", sessionId);
+                    return;
                 }
 
-                // Отправляем данные
+                // Конвертируем изображение в Base64
+                String base64Image = convertToBase64(image, quality);
+
+                // Создаем данные кадра
                 CameraFrameData frameData = new CameraFrameData();
                 frameData.type = "frame";
                 frameData.cameraId = cameraId;
@@ -131,18 +141,35 @@ public class CameraStreamService {
                 frameData.height = image.getHeight();
                 frameData.fps = fps;
 
-                String json = objectMapper.writeValueAsString(frameData);
-                wsContext.send(json);
+                // Отправляем кадр с дополнительной проверкой
+                try {
+                    // Последняя проверка активности и соединения
+                    if (!isActive.get() || wsContext == null || !wsContext.session.isOpen()) {
+                        Logger.debug("Сессия {} неактивна или соединение закрыто перед отправкой", sessionId);
+                        return;
+                    }
+
+                    String json = objectMapper.writeValueAsString(frameData);
+                    wsContext.send(json);
+
+                    // Логируем успешную отправку кадра (только каждые 100 кадров для
+                    // производительности)
+                    if (System.currentTimeMillis() % 100 == 0) {
+                        Logger.debug("Отправлен кадр камеры {} для сессии {}: {}x{}",
+                                cameraId, sessionId, image.getWidth(), image.getHeight());
+                    }
+                } catch (Exception sendError) {
+                    Logger.error("Ошибка отправки данных WebSocket для сессии {}: {}", sessionId,
+                            sendError.getMessage());
+                    // Если не можем отправить, останавливаем стрим
+                    stop();
+                    return;
+                }
 
             } catch (Exception e) {
-                long currentTime = System.currentTimeMillis();
-                if (currentTime - lastErrorTime > ERROR_THROTTLE_MS) {
-                    Logger.error("Ошибка стрима камеры {}: {}", cameraId, e.getMessage(), e);
-                    sendError("Ошибка стрима: " + e.getMessage());
-                    lastErrorTime = currentTime;
-                } else {
-                    Logger.debug("Ошибка стрима камеры {} (подавлена): {}", cameraId, e.getMessage());
-                }
+                Logger.error("Ошибка обработки кадра камеры {} для сессии {}: {}", cameraId, sessionId, e.getMessage(),
+                        e);
+                sendError("Ошибка обработки кадра: " + e.getMessage());
             }
         }
 
@@ -333,6 +360,13 @@ public class CameraStreamService {
             long currentTime = System.currentTimeMillis();
             if (currentTime - lastErrorTime > ERROR_THROTTLE_MS) {
                 try {
+                    // Проверяем состояние соединения перед отправкой
+                    if (wsContext == null || !wsContext.session.isOpen()) {
+                        Logger.debug("WebSocket соединение закрыто, пропускаем отправку ошибки для сессии {}",
+                                sessionId);
+                        return;
+                    }
+
                     CameraFrameData errorData = new CameraFrameData();
                     errorData.type = "error";
                     errorData.cameraId = cameraId;
@@ -343,16 +377,33 @@ public class CameraStreamService {
                     wsContext.send(json);
                     lastErrorTime = currentTime;
                 } catch (Exception e) {
-                    Logger.error("Ошибка отправки сообщения об ошибке: {}", e.getMessage());
+                    Logger.error("Ошибка отправки сообщения об ошибке для сессии {}: {}", sessionId, e.getMessage());
+                    // Если не можем отправить ошибку, возможно соединение разорвано
+                    if (e.getMessage() != null && e.getMessage().contains("closed")) {
+                        Logger.warn("WebSocket соединение разорвано для сессии {}, останавливаем стрим", sessionId);
+                        stop();
+                    }
                 }
             }
         }
 
         public void stop() {
+            Logger.info("Начало остановки сессии стрима камеры: {} для камеры: {}", sessionId, cameraId);
+
+            // Сначала помечаем как неактивную
             isActive.set(false);
+
+            // Останавливаем поток стрима
             if (streamTask != null && !streamTask.isCancelled()) {
                 streamTask.cancel(true);
+                try {
+                    // Ждем завершения потока максимум 1 секунду
+                    streamTask.get(1, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    Logger.warn("Поток стрима не завершился корректно для сессии {}: {}", sessionId, e.getMessage());
+                }
             }
+
             Logger.info("Остановлена сессия стрима камеры: {} для камеры: {}", sessionId, cameraId);
         }
 
@@ -389,22 +440,46 @@ public class CameraStreamService {
     public static void startCameraStream(WsContext ctx, StreamRequest request) {
         String sessionId = ctx.sessionId();
 
+        Logger.info("Запрос на запуск стрима камеры: сессия={}, камера={}, fps={}, качество={}",
+                sessionId, request.cameraId, request.fps, request.quality);
+
         // Проверяем параметры
         if (request.cameraId == null || request.cameraId.isEmpty()) {
+            Logger.warn("Попытка запуска стрима без указания ID камеры для сессии {}", sessionId);
             sendError(ctx, "ID камеры не указан");
             return;
         }
 
         if (request.fps <= 0 || request.fps > 30) {
+            Logger.info("Корректировка FPS с {} на 10 для сессии {}", request.fps, sessionId);
             request.fps = 10; // FPS по умолчанию
         }
 
         if (request.quality == null || request.quality.isEmpty()) {
+            Logger.info("Установка качества по умолчанию 'medium' для сессии {}", sessionId);
             request.quality = "medium";
         }
 
-        // Останавливаем существующую сессию для этой камеры
-        stopCameraStream(sessionId);
+        // Проверяем, есть ли уже активная сессия для этой камеры
+        CameraStreamSession existingSession;
+        synchronized (sessionsLock) {
+            existingSession = sessions.get(sessionId);
+        }
+
+        if (existingSession != null) {
+            String existingCameraId = existingSession.getCameraId();
+            if (existingCameraId.equals(request.cameraId)) {
+                Logger.info("Стрим камеры {} уже запущен для сессии {}", request.cameraId, sessionId);
+                // Отправляем подтверждение без перезапуска
+                sendStreamStarted(ctx, request.cameraId, existingSession.fps, existingSession.quality);
+                return;
+            } else {
+                Logger.info("Переключение с камеры {} на камеру {} для сессии {}",
+                        existingCameraId, request.cameraId, sessionId);
+                // Останавливаем старую сессию
+                stopCameraStream(sessionId);
+            }
+        }
 
         // Создаем новую сессию
         CameraStreamSession session = new CameraStreamSession(
@@ -414,7 +489,12 @@ public class CameraStreamService {
                 request.fps,
                 request.quality);
 
-        sessions.put(sessionId, session);
+        synchronized (sessionsLock) {
+            sessions.put(sessionId, session);
+        }
+
+        Logger.info("Стрим камеры запущен: сессия={}, камера={}, активных сессий={}",
+                sessionId, request.cameraId, getActiveStreamCount());
 
         // Отправляем подтверждение
         sendStreamStarted(ctx, request.cameraId, request.fps, request.quality);
@@ -424,9 +504,15 @@ public class CameraStreamService {
      * Остановить стрим камеры
      */
     public static void stopCameraStream(String sessionId) {
-        CameraStreamSession session = sessions.remove(sessionId);
-        if (session != null) {
-            session.stop();
+        synchronized (sessionsLock) {
+            CameraStreamSession session = sessions.remove(sessionId);
+            if (session != null) {
+                Logger.info("Остановка стрима камеры: сессия={}, камера={}, активных сессий={}",
+                        sessionId, session.getCameraId(), sessions.size());
+                session.stop();
+            } else {
+                Logger.debug("Попытка остановки несуществующей сессии стрима: {}", sessionId);
+            }
         }
     }
 
@@ -434,34 +520,67 @@ public class CameraStreamService {
      * Остановить стрим камеры по контексту
      */
     public static void stopCameraStream(WsContext ctx) {
-        stopCameraStream(ctx.sessionId());
+        String sessionId = ctx.sessionId();
+        Logger.info("Остановка стрима камеры по контексту: сессия={}", sessionId);
+        stopCameraStream(sessionId);
     }
 
     /**
      * Получить список активных сессий стрима
      */
     public static java.util.Map<String, String> getActiveStreams() {
-        java.util.Map<String, String> activeStreams = new ConcurrentHashMap<>();
-        sessions.forEach((sessionId, session) -> {
-            activeStreams.put(sessionId, session.getCameraId());
-        });
-        return activeStreams;
+        synchronized (sessionsLock) {
+            java.util.Map<String, String> activeStreams = new ConcurrentHashMap<>();
+            sessions.forEach((sessionId, session) -> {
+                activeStreams.put(sessionId, session.getCameraId());
+            });
+            return activeStreams;
+        }
     }
 
     /**
      * Получить количество активных стримов
      */
     public static int getActiveStreamCount() {
-        return sessions.size();
+        synchronized (sessionsLock) {
+            return sessions.size();
+        }
     }
 
     /**
      * Получить количество активных стримов для конкретной камеры
      */
     public static int getActiveStreamCountForCamera(String cameraId) {
-        return (int) sessions.values().stream()
-                .filter(session -> session.getCameraId().equals(cameraId))
-                .count();
+        synchronized (sessionsLock) {
+            return (int) sessions.values().stream()
+                    .filter(session -> session.getCameraId().equals(cameraId))
+                    .count();
+        }
+    }
+
+    /**
+     * Получить детальную статистику подключений
+     */
+    public static String getConnectionStats() {
+        synchronized (sessionsLock) {
+            StringBuilder stats = new StringBuilder();
+            stats.append("=== Статистика WebSocket стримов камер ===\n");
+            stats.append("Активных сессий: ").append(sessions.size()).append("\n");
+
+            if (!sessions.isEmpty()) {
+                stats.append("Детали сессий:\n");
+                sessions.forEach((sessionId, session) -> {
+                    stats.append("  - Сессия: ").append(sessionId)
+                            .append(", Камера: ").append(session.getCameraId())
+                            .append(", FPS: ").append(session.fps)
+                            .append(", Качество: ").append(session.quality)
+                            .append(", Активна: ").append(session.isActive.get())
+                            .append("\n");
+                });
+            }
+
+            return stats.toString();
+        }
     }
 
     /**
@@ -502,11 +621,51 @@ public class CameraStreamService {
     }
 
     /**
+     * Очистить неактивные сессии
+     */
+    public static void cleanupInactiveSessions() {
+        synchronized (sessionsLock) {
+            int cleanedCount = 0;
+            java.util.Iterator<java.util.Map.Entry<String, CameraStreamSession>> iterator = sessions.entrySet()
+                    .iterator();
+
+            while (iterator.hasNext()) {
+                java.util.Map.Entry<String, CameraStreamSession> entry = iterator.next();
+                CameraStreamSession session = entry.getValue();
+
+                // Проверяем, закрыто ли WebSocket соединение
+                if (session.getWsContext() == null || !session.getWsContext().session.isOpen()) {
+                    Logger.info("Очистка неактивной сессии: {} (камера: {})", session.getSessionId(),
+                            session.getCameraId());
+                    session.stop();
+                    iterator.remove();
+                    cleanedCount++;
+                }
+            }
+
+            if (cleanedCount > 0) {
+                Logger.info("Очищено {} неактивных сессий стрима камеры", cleanedCount);
+            }
+        }
+    }
+
+    /**
      * Очистить все сессии
      */
     public static void cleanup() {
-        sessions.values().forEach(CameraStreamSession::stop);
-        sessions.clear();
-        Logger.info("CameraStreamService очищен");
+        synchronized (sessionsLock) {
+            Logger.info("Начало очистки всех сессий стрима камеры (активных: {})", sessions.size());
+
+            sessions.values().forEach(session -> {
+                try {
+                    session.stop();
+                } catch (Exception e) {
+                    Logger.error("Ошибка при остановке сессии {}: {}", session.getSessionId(), e.getMessage());
+                }
+            });
+
+            sessions.clear();
+            Logger.info("CameraStreamService очищен");
+        }
     }
 }

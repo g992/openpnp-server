@@ -16,6 +16,10 @@ import org.pmw.tinylog.Logger;
 
 import static io.javalin.apibuilder.ApiBuilder.*;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+
 /**
  * Сервер OpenPnP API
  */
@@ -88,6 +92,8 @@ public class OpenPnPApiServer {
                         path("/cameras", () -> {
                             get("/", CameraStreamController::getCameras);
                             get("/streams", CameraStreamController::getStreamInfo);
+                            get("/stats", CameraStreamController::getConnectionStats);
+                            post("/cleanup", CameraStreamController::cleanupSessions);
                         });
                     });
 
@@ -125,10 +131,29 @@ public class OpenPnPApiServer {
             // Запускаем WebSocket сервисы
             WebSocketService.startPeriodicUpdates();
 
+            // Запускаем периодическую очистку неактивных сессий камеры
+            startCameraSessionCleanup();
+
         } catch (Exception e) {
             Logger.error("Ошибка запуска API сервера", e);
             throw new RuntimeException("Не удалось запустить API сервер", e);
         }
+    }
+
+    /**
+     * Запуск периодической очистки неактивных сессий камеры
+     */
+    private void startCameraSessionCleanup() {
+        ScheduledExecutorService cleanupScheduler = Executors.newSingleThreadScheduledExecutor();
+        cleanupScheduler.scheduleAtFixedRate(() -> {
+            try {
+                CameraStreamService.cleanupInactiveSessions();
+            } catch (Exception e) {
+                Logger.error("Ошибка при очистке неактивных сессий камеры: {}", e.getMessage());
+            }
+        }, 30, 30, TimeUnit.SECONDS); // Каждые 30 секунд
+
+        Logger.info("Запущена периодическая очистка неактивных сессий камеры");
     }
 
     public void stop() {

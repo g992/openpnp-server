@@ -24,7 +24,10 @@ public class CameraStreamController {
      * Обработчик подключения WebSocket стрима камеры
      */
     public static void onConnect(WsContext ctx) {
-        Logger.info("WebSocket стрим камеры подключен: " + ctx.sessionId());
+        Logger.info("WebSocket стрим камеры подключен: {} (IP: {}, User-Agent: {})",
+                ctx.sessionId(),
+                ctx.host(),
+                ctx.header("User-Agent"));
 
         // Отправляем список доступных камер
         sendAvailableCameras(ctx);
@@ -34,9 +37,18 @@ public class CameraStreamController {
      * Обработчик отключения WebSocket стрима камеры
      */
     public static void onClose(WsContext ctx) {
+        String sessionId = ctx.sessionId();
+        String host = ctx.host();
+
+        Logger.info("WebSocket стрим камеры отключен: {} (IP: {})", sessionId, host);
+
         // Останавливаем стрим при отключении
-        CameraStreamService.stopCameraStream(ctx);
-        Logger.info("WebSocket стрим камеры отключен: " + ctx.sessionId());
+        try {
+            CameraStreamService.stopCameraStream(ctx);
+            Logger.info("Стрим камеры успешно остановлен для сессии: {}", sessionId);
+        } catch (Exception e) {
+            Logger.error("Ошибка при остановке стрима камеры для сессии {}: {}", sessionId, e.getMessage());
+        }
     }
 
     /**
@@ -45,12 +57,14 @@ public class CameraStreamController {
     public static void onMessage(WsMessageContext ctx) {
         try {
             String message = ctx.message();
-            Logger.debug("Получено WebSocket сообщение стрима камеры: " + message);
+            Logger.debug("Получено WebSocket сообщение стрима камеры от сессии {}: {}", ctx.sessionId(), message);
 
             // Парсим JSON сообщение
             try {
                 var jsonNode = objectMapper.readTree(message);
                 String command = jsonNode.get("command").asText();
+
+                Logger.info("Обработка команды '{}' для сессии {}", command, ctx.sessionId());
 
                 switch (command) {
                     case "start_stream":
@@ -69,22 +83,27 @@ public class CameraStreamController {
                         sendStreamInfo(ctx);
                         break;
                     default:
+                        Logger.warn("Неизвестная команда '{}' от сессии {}", command, ctx.sessionId());
                         sendError(ctx, "Неизвестная команда: " + command);
                         break;
                 }
             } catch (Exception e) {
                 // Если не JSON, пробуем простые команды
                 if ("ping".equals(message)) {
+                    Logger.debug("Обработка простой команды 'ping' для сессии {}", ctx.sessionId());
                     handlePing(ctx);
                 } else if ("stop_stream".equals(message)) {
+                    Logger.debug("Обработка простой команды 'stop_stream' для сессии {}", ctx.sessionId());
                     handleStopStream(ctx);
                 } else {
+                    Logger.warn("Неверный формат сообщения от сессии {}: {}", ctx.sessionId(), e.getMessage());
                     sendError(ctx, "Неверный формат сообщения: " + e.getMessage());
                 }
             }
 
         } catch (Exception e) {
-            Logger.error("Ошибка обработки WebSocket сообщения стрима камеры: " + e.getMessage());
+            Logger.error("Ошибка обработки WebSocket сообщения стрима камеры от сессии {}: {}", ctx.sessionId(),
+                    e.getMessage());
             sendError(ctx, "Ошибка обработки сообщения: " + e.getMessage());
         }
     }
@@ -279,6 +298,42 @@ public class CameraStreamController {
         } catch (Exception e) {
             Logger.error("Ошибка получения списка камер: " + e.getMessage());
             ctx.status(500).json(new ErrorResponse("Ошибка получения списка камер: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * REST API: Принудительная очистка неактивных сессий
+     */
+    public static void cleanupSessions(Context ctx) {
+        try {
+            int beforeCount = CameraStreamService.getActiveStreamCount();
+            CameraStreamService.cleanupInactiveSessions();
+            int afterCount = CameraStreamService.getActiveStreamCount();
+            int cleanedCount = beforeCount - afterCount;
+
+            String result = String.format("Очищено %d неактивных сессий. Осталось активных: %d", cleanedCount,
+                    afterCount);
+            ctx.result(result);
+            ctx.contentType("text/plain; charset=utf-8");
+
+            Logger.info("Принудительная очистка сессий: очищено {}, осталось {}", cleanedCount, afterCount);
+        } catch (Exception e) {
+            Logger.error("Ошибка принудительной очистки сессий: " + e.getMessage());
+            ctx.status(500).json(new ErrorResponse("Ошибка очистки сессий: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * REST API: Получить детальную статистику подключений
+     */
+    public static void getConnectionStats(Context ctx) {
+        try {
+            String stats = CameraStreamService.getConnectionStats();
+            ctx.result(stats);
+            ctx.contentType("text/plain; charset=utf-8");
+        } catch (Exception e) {
+            Logger.error("Ошибка получения статистики подключений: " + e.getMessage());
+            ctx.status(500).json(new ErrorResponse("Ошибка получения статистики: " + e.getMessage()));
         }
     }
 
