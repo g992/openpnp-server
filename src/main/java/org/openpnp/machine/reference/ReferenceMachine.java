@@ -191,23 +191,23 @@ public class ReferenceMachine extends AbstractMachine {
 
     public ReferenceMachine() {
         Configuration.get()
-                     .addListener(new ConfigurationListener.Adapter() {
+                .addListener(new ConfigurationListener.Adapter() {
 
-                         @Override
-                         public void configurationLoaded(Configuration configuration)
-                                 throws Exception {
-                             if (partAlignments.isEmpty()) {
-                                 partAlignments.add(new ReferenceBottomVision());
-                             }
-                             // Migrate the driver.
-                             if (driver != null && driver instanceof AbstractDriver) {
-                                 // Note, the migrated driver will add itself to the machine driver list 
-                                 // and for GcodeDrivers it will recurse into the sub-drivers.
-                                 ((AbstractDriver)driver).migrateDriver(ReferenceMachine.this);
-                                 driver = null;
-                             }
-                         }
-                     });
+                    @Override
+                    public void configurationLoaded(Configuration configuration)
+                            throws Exception {
+                        if (partAlignments.isEmpty()) {
+                            partAlignments.add(new ReferenceBottomVision());
+                        }
+                        // Migrate the driver.
+                        if (driver != null && driver instanceof AbstractDriver) {
+                            // Note, the migrated driver will add itself to the machine driver list
+                            // and for GcodeDrivers it will recurse into the sub-drivers.
+                            ((AbstractDriver) driver).migrateDriver(ReferenceMachine.this);
+                            driver = null;
+                        }
+                    }
+                });
     }
 
     @Override
@@ -231,24 +231,24 @@ public class ReferenceMachine extends AbstractMachine {
                 }
                 this.enabled = true;
                 if (syncLocation) {
-                    // We wait for still-stand, because as a side-effect, it will allow OpenPnP to sync its
-                    // position to the initial reported location (see Driver.isSyncInitialLocation()).
+                    // We wait for still-stand, because as a side-effect, it will allow OpenPnP to
+                    // sync its
+                    // position to the initial reported location (see
+                    // Driver.isSyncInitialLocation()).
                     getMotionPlanner().waitForCompletion(null, CompletionType.WaitForStillstand);
                 }
                 if (getHomeAfterEnabled() && isTask(Thread.currentThread())) {
                     UiUtils.submitUiMachineTask(() -> home());
                 }
-            }
-            catch (Exception e) {
-                // In a multi-driver machine, we must make sure its all-or-nothing, 
+            } catch (Exception e) {
+                // In a multi-driver machine, we must make sure its all-or-nothing,
                 // like a roll-back in a database -> if one fails, disable the others again.
                 // We want reverse disabling order.
                 Collections.reverse(enabledDrivers);
                 for (Driver driver : enabledDrivers) {
                     try {
                         driver.setEnabled(false);
-                    }
-                    catch (Exception e1) {
+                    } catch (Exception e1) {
                         Logger.warn(e1);
                     }
                 }
@@ -256,13 +256,13 @@ public class ReferenceMachine extends AbstractMachine {
                 throw e;
             }
             fireMachineEnabled();
-        }
-        else {
+        } else {
             // remove homed-flag if machine is disabled
             getMotionPlanner().unhome();
             this.setHomed(false);
             fireMachineAboutToBeDisabled("User requested stop.");
-            // In a multi-driver machine, we must try to disable all drivers even if one throws.
+            // In a multi-driver machine, we must try to disable all drivers even if one
+            // throws.
             Exception e = null;
             List<Driver> enabledDrivers = new ArrayList<>();
             enabledDrivers.addAll(getDrivers());
@@ -271,8 +271,7 @@ public class ReferenceMachine extends AbstractMachine {
             for (Driver driver : enabledDrivers) {
                 try {
                     driver.setEnabled(false);
-                }
-                catch (Exception e1) {
+                } catch (Exception e1) {
                     Logger.warn(e1);
                     e = e1;
                 }
@@ -355,7 +354,7 @@ public class ReferenceMachine extends AbstractMachine {
     public void setAutoLoadMostRecentJob(boolean autoLoadMostRecentJob) {
         this.autoLoadMostRecentJob = autoLoadMostRecentJob;
     }
-    
+
     @Override
     public Wizard getConfigurationWizard() {
         return new ReferenceMachineConfigurationWizard(this);
@@ -406,9 +405,9 @@ public class ReferenceMachine extends AbstractMachine {
 
     @Override
     public PropertySheet[] getPropertySheets() {
-        return Collect.concat(new PropertySheet[] { 
-                    new PropertySheetWizardAdapter(getConfigurationWizard()),
-                },
+        return Collect.concat(new PropertySheet[] {
+                new PropertySheetWizardAdapter(getConfigurationWizard()),
+        },
                 getMotionPlanner().getPropertySheets());
     }
 
@@ -538,7 +537,7 @@ public class ReferenceMachine extends AbstractMachine {
 
         // if homing went well, set machine homed-flag true
         this.setHomed(true);
-        
+
         if (isParkAfterHomed()) {
             for (Head head : getHeads()) {
                 MovableUtils.park(head);
@@ -551,16 +550,14 @@ public class ReferenceMachine extends AbstractMachine {
         for (Driver driver : getDrivers()) {
             try {
                 driver.close();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }
         for (Camera camera : getCameras()) {
             try {
                 camera.close();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         }
@@ -568,8 +565,7 @@ public class ReferenceMachine extends AbstractMachine {
             for (Camera camera : head.getCameras()) {
                 try {
                     camera.close();
-                }
-                catch (Exception e) {
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
@@ -598,6 +594,7 @@ public class ReferenceMachine extends AbstractMachine {
     public boolean isHomed() {
         return this.isHomed;
     }
+
     @Override
     public void setHomed(boolean isHomed) {
         Logger.info("setHomed({})", isHomed);
@@ -615,10 +612,10 @@ public class ReferenceMachine extends AbstractMachine {
         return solutions;
     }
 
-    //@Element(required = false)
-    private KinematicSolutions kinematicSolutions = new KinematicSolutions(); 
+    // @Element(required = false)
+    private KinematicSolutions kinematicSolutions = new KinematicSolutions();
 
-    //@Element(required = false)
+    // @Element(required = false)
     private NozzleTipSolutions nozzleTipSolutions = new NozzleTipSolutions();
 
     @Element(required = false)
@@ -629,7 +626,7 @@ public class ReferenceMachine extends AbstractMachine {
     }
 
     @Element(required = false)
-    private CalibrationSolutions calibrationSolutions = new CalibrationSolutions(); 
+    private CalibrationSolutions calibrationSolutions = new CalibrationSolutions();
 
     public CalibrationSolutions getCalibrationSolutions() {
         return calibrationSolutions;
@@ -648,44 +645,42 @@ public class ReferenceMachine extends AbstractMachine {
         if (solutions.isTargeting(Milestone.Advanced)) {
             if (getMotionPlanner() instanceof NullMotionPlanner) {
                 solutions.add(new Solutions.Issue(
-                        this, 
-                        "Advanced Motion Planner not set. Accept or Dismiss to continue.", 
-                        "Change to ReferenceAdvancedMotionPlanner", 
+                        this,
+                        "Advanced Motion Planner not set. Accept or Dismiss to continue.",
+                        "Change to ReferenceAdvancedMotionPlanner",
                         Solutions.Severity.Fundamental,
                         "https://github.com/openpnp/openpnp/wiki/Motion-Planner#choosing-a-motion-planner") {
-                    final MotionPlanner oldMotionPlanner =  ReferenceMachine.this.getMotionPlanner();
+                    final MotionPlanner oldMotionPlanner = ReferenceMachine.this.getMotionPlanner();
 
                     @Override
                     public void setState(Solutions.State state) throws Exception {
                         if ((state == Solutions.State.Solved)) {
                             setMotionPlanner(new ReferenceAdvancedMotionPlanner());
-                        } 
-                        else {
+                        } else {
                             setMotionPlanner(oldMotionPlanner);
                         }
                         super.setState(state);
                     }
                 });
             }
-        }
-        else {
+        } else {
             // Conservative settings.
             if (!(getMotionPlanner() instanceof NullMotionPlanner)) {
                 solutions.add(new Solutions.Issue(
-                        this, 
-                        "Advanced motion planner set. Revert to a simpler, safer planner.", 
-                        "Change to NullMotionPlanner", 
+                        this,
+                        "Advanced motion planner set. Revert to a simpler, safer planner.",
+                        "Change to NullMotionPlanner",
                         Solutions.Severity.Information,
                         "https://github.com/openpnp/openpnp/wiki/Motion-Planner#choosing-a-motion-planner") {
-                    final MotionPlanner oldMotionPlanner =  ReferenceMachine.this.getMotionPlanner();
+                    final MotionPlanner oldMotionPlanner = ReferenceMachine.this.getMotionPlanner();
 
                     @Override
-                    public boolean isUnhandled( ) {
+                    public boolean isUnhandled() {
                         // Never handle a conservative solution as unhandled.
                         return false;
                     }
 
-                    @Override 
+                    @Override
                     public String getExtendedDescription() {
                         return "<html><span color=\"red\">CAUTION:</span> This is a troubleshooting option, offered to remove the ReferenceAdvancedMotionPlanner "
                                 + "if it causes problems, or if you don't want it after all. Going back to the plain NullPlanner will lose you all the "
@@ -696,8 +691,7 @@ public class ReferenceMachine extends AbstractMachine {
                     public void setState(Solutions.State state) throws Exception {
                         if ((state == Solutions.State.Solved)) {
                             setMotionPlanner(new NullMotionPlanner());
-                        } 
-                        else {
+                        } else {
                             setMotionPlanner(oldMotionPlanner);
                         }
                         super.setState(state);
@@ -705,11 +699,11 @@ public class ReferenceMachine extends AbstractMachine {
                 });
             }
         }
-        if (solutions.isTargeting(Milestone.Basics) && ! isAutoToolSelect()) {
+        if (solutions.isTargeting(Milestone.Basics) && !isAutoToolSelect()) {
             solutions.add(new Solutions.Issue(
-                    this, 
-                    "OpenPnP can often automatically select the right tool for you in Machine Controls.", 
-                    "Enable Auto tool select.", 
+                    this,
+                    "OpenPnP can often automatically select the right tool for you in Machine Controls.",
+                    "Enable Auto tool select.",
                     Solutions.Severity.Suggestion,
                     "https://github.com/openpnp/openpnp/wiki/Setup-and-Calibration_Machine-Setup#configuration") {
 

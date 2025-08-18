@@ -47,6 +47,7 @@ public class AbstractReferenceDriverConfigurationWizard extends AbstractConfigur
     private ButtonGroup commsMethodButtonGroup;
     private JPanel panelSerial;
     private JPanel panelTcp;
+    private JPanel panelKlipper;
     private JCheckBox connectionKeepAlive;
     private JPanel panelController;
     private JLabel lblName;
@@ -59,6 +60,7 @@ public class AbstractReferenceDriverConfigurationWizard extends AbstractConfigur
     private JComboBox lineEndingType;
     private JLabel lblAllowUnhomedMotion;
     private JCheckBox allowUnhomedMotion;
+    private JTextField socketPathTextField;
 
     public AbstractReferenceDriverConfigurationWizard(AbstractReferenceDriver driver) {
         this.driver = driver;
@@ -331,6 +333,29 @@ public class AbstractReferenceDriverConfigurationWizard extends AbstractConfigur
         portTextField = new JTextField(17);
         panelTcp.add(portTextField, "4, 4, fill, default");
         portTextField.setColumns(10);
+
+        // Klipper (UNIX socket) config
+        panelKlipper = new JPanel();
+        panelKlipper.setBorder(new TitledBorder(null, Translations.getString(
+                "AbstractReferenceDriverConfigurationWizard.KlipperPanel.Border.title"), //$NON-NLS-1$
+                TitledBorder.LEADING, TitledBorder.TOP, null, null));
+        contentPanel.add(panelKlipper);
+        panelKlipper.setLayout(new FormLayout(new ColumnSpec[] {
+                FormSpecs.RELATED_GAP_COLSPEC,
+                ColumnSpec.decode("right:max(70dlu;default)"),
+                FormSpecs.RELATED_GAP_COLSPEC,
+                FormSpecs.DEFAULT_COLSPEC,},
+            new RowSpec[] {
+                FormSpecs.RELATED_GAP_ROWSPEC,
+                FormSpecs.DEFAULT_ROWSPEC,}));
+
+        JLabel lblSocketPath = new JLabel(Translations.getString(
+                "AbstractReferenceDriverConfigurationWizard.KlipperPanel.SocketPathLabel.text")); //$NON-NLS-1$
+        panelKlipper.add(lblSocketPath, "2, 2, right, default");
+
+        socketPathTextField = new JTextField(24);
+        panelKlipper.add(socketPathTextField, "4, 2, fill, default");
+        socketPathTextField.setColumns(10);
     }
 
     private void setPanelEnabled(JPanel panel, Boolean isEnabled) {
@@ -383,10 +408,12 @@ public class AbstractReferenceDriverConfigurationWizard extends AbstractConfigur
         
         addWrappedBinding(driver, "ipAddress", ipAddressTextField, "text");
         addWrappedBinding(driver, "port", portTextField, "text", integerConverter);
+        addWrappedBinding(driver, "socketPath", socketPathTextField, "text");
 
         ComponentDecorators.decorateWithAutoSelect(driverName);
         ComponentDecorators.decorateWithAutoSelect(ipAddressTextField);
         ComponentDecorators.decorateWithAutoSelect(portTextField);
+        ComponentDecorators.decorateWithAutoSelect(socketPathTextField);
 
         communicationsTypeChanged();
     }
@@ -409,9 +436,15 @@ public class AbstractReferenceDriverConfigurationWizard extends AbstractConfigur
         if (communicationsType.getSelectedItem() == CommunicationsType.serial) {
             setPanelEnabled(panelSerial, true);
             setPanelEnabled(panelTcp, false);
-        } else {
+            setPanelEnabled(panelKlipper, false);
+        } else if (communicationsType.getSelectedItem() == CommunicationsType.tcp) {
             setPanelEnabled(panelSerial, false);
             setPanelEnabled(panelTcp, true);
+            setPanelEnabled(panelKlipper, false);
+        } else {
+            setPanelEnabled(panelSerial, false);
+            setPanelEnabled(panelTcp, false);
+            setPanelEnabled(panelKlipper, true);
         }
     }
 }

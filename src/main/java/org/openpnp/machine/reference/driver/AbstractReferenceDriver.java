@@ -20,24 +20,29 @@ import org.simpleframework.xml.core.Commit;
 
 public abstract class AbstractReferenceDriver extends AbstractDriver {
     @Attribute(required = false)
-    protected MotionControlType motionControlType = MotionControlType.ToolpathFeedRate; 
+    protected MotionControlType motionControlType = MotionControlType.ToolpathFeedRate;
 
     @Element(required = false)
     protected SerialPortCommunications serial = new SerialPortCommunications();
 
     @Element(required = false)
     protected TcpCommunications tcp = new TcpCommunications();
-    
+
     @Element(required = false)
     protected SimulatedCommunications simulated = new SimulatedCommunications();
 
+    @Element(required = false)
+    protected KlipperCommunications klipper = new KlipperCommunications();
+
     public enum CommunicationsType {
         serial, // lower case for legacy support.
-        tcp
+        tcp,
+        klipper
     }
+
     @Attribute(required = false, name = "communications")
     protected CommunicationsType communicationsType = CommunicationsType.serial;
-    
+
     @Attribute(required = false)
     protected boolean connectionKeepAlive = false;
 
@@ -48,7 +53,8 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
     protected boolean allowUnhomedMotion = false;
 
     /**
-     * TODO The following properties are for backwards compatibility and can be removed after 2019-07-15. 
+     * TODO The following properties are for backwards compatibility and can be
+     * removed after 2019-07-15.
      */
     @Deprecated
     @Attribute(required = false)
@@ -81,10 +87,10 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
     @Deprecated
     @Attribute(required = false)
     protected Boolean setRts = false;
-    
+
     public AbstractReferenceDriver() {
     }
-    
+
     @Commit
     public void commit() {
         if (portName != null && !portName.isEmpty()) {
@@ -95,7 +101,7 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
             setStopBits(this.stopBits);
             setParity(this.parity);
             setSetDtr(this.setDtr);
-            setSetRts(this.setRts);            
+            setSetRts(this.setRts);
         }
         this.portName = null;
         this.baud = null;
@@ -110,17 +116,16 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
         setConnectionKeepAlive(connectionKeepAlive);
         tcp.setDriver(this);
     }
-    
+
     @Override
     public void close() throws IOException {
         try {
             disconnect();
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             throw new IOException(e);
         }
     }
-    
+
     public abstract void disconnect() throws Exception;
 
     @Override
@@ -139,12 +144,12 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
     }
 
     public void setCommunicationsType(CommunicationsType communicationsType) {
-        // If the communications type is changing we need to disconnect the old one first.
+        // If the communications type is changing we need to disconnect the old one
+        // first.
         if (communicationsType == null || communicationsType != this.communicationsType) {
             try {
                 disconnect();
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 Logger.error(e);
             }
         }
@@ -160,9 +165,9 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
     }
 
     public boolean isConnectionKeepAlive() {
-    	return connectionKeepAlive;
+        return connectionKeepAlive;
     }
-    
+
     public void setConnectionKeepAlive(boolean connectionKeepAlive) {
         Object oldValue = this.connectionKeepAlive;
         this.connectionKeepAlive = connectionKeepAlive;
@@ -198,7 +203,7 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
 
     public ReferenceDriverCommunications getCommunications() {
         if (isInSimulationMode()) {
-            // Switch off keep-alive, to allow for dynamic switching. 
+            // Switch off keep-alive, to allow for dynamic switching.
             setConnectionKeepAlive(false);
             simulated.setDriver(this);
             return simulated;
@@ -210,6 +215,10 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
             case tcp: {
                 tcp.setDriver(this);
                 return getTcp();
+            }
+            case klipper: {
+                klipper.setDriverName(getName());
+                return klipper;
             }
             default: {
                 Logger.error("Invalid communications method attempted to be set. Defaulting to serial.");
@@ -226,6 +235,7 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
         // Set it to all the communications types.
         getSerial().setLineEndingType(lineEndingType);
         getTcp().setLineEndingType(lineEndingType);
+        klipper.setLineEndingType(lineEndingType);
     }
 
     public String getPortName() {
@@ -310,6 +320,14 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
         tcp.setPort(port);
     }
 
+    public String getSocketPath() {
+        return klipper.getSocketPath();
+    }
+
+    public void setSocketPath(String socketPath) {
+        klipper.setSocketPath(socketPath);
+    }
+
     @Override
     public void setEnabled(boolean enabled) throws Exception {
         if (enabled && isSyncInitialLocation()) {
@@ -320,7 +338,7 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
 
     @Override
     public PropertySheet[] getPropertySheets() {
-        return new PropertySheet[]{new PropertySheetWizardAdapter(getConfigurationWizard())};
+        return new PropertySheet[] { new PropertySheetWizardAdapter(getConfigurationWizard()) };
     }
 
     @Override
@@ -328,51 +346,45 @@ public abstract class AbstractReferenceDriver extends AbstractDriver {
         return new AbstractReferenceDriverConfigurationWizard(this);
     }
 
-    
-    // Replaces each backslash escaped sequence within a string with its actual unicode character
+    // Replaces each backslash escaped sequence within a string with its actual
+    // unicode character
     public static String unescape(String s) {
         int i = 0;
         char c;
         int len = s.length();
         StringBuffer sb = new StringBuffer(len);
-        while (i<len) {
-             c = s.charAt(i++);
-             if (c == '\\') {
-                  if (i<len) {
-                       c = s.charAt(i++);
-                       if ((c == 'u') || (c == 'U')) {
-                          try {
-                               c = (char) Integer.parseInt(s.substring(i,i+4),16);
-                               i += 4;
-                          }
-                          catch (Exception e) {
-                              //the escaped unicode character doesn't have the correct form (four hexidecimal digits) so just pass it along
-                              //as a string
-                              sb.append('\\');
-                          }
-                       }
-                       else if ((c == 't') || (c == 'T')) {
-                           c = 0x0009; //unicode tab
-                       }
-                       else if ((c == 'b') || (c == 'B')) {
-                           c = 0x0008; //unicode backspace
-                       }
-                       else if ((c == 'n') || (c == 'N')) {
-                           c = 0x000A; //unicode line feed
-                       }
-                       else if ((c == 'r') || (c == 'R')) {
-                           c = 0x000D; //unicode carriage return
-                       }
-                       else if ((c == 'f') || (c == 'F')) {
-                           c = 0x000C; //unicode form feed
-                       }
-                       else {
-                           //in all other cases just pass the backslash along
-                           sb.append('\\');
-                       }
-                  }
-             }
-        sb.append(c);
+        while (i < len) {
+            c = s.charAt(i++);
+            if (c == '\\') {
+                if (i < len) {
+                    c = s.charAt(i++);
+                    if ((c == 'u') || (c == 'U')) {
+                        try {
+                            c = (char) Integer.parseInt(s.substring(i, i + 4), 16);
+                            i += 4;
+                        } catch (Exception e) {
+                            // the escaped unicode character doesn't have the correct form (four hexidecimal
+                            // digits) so just pass it along
+                            // as a string
+                            sb.append('\\');
+                        }
+                    } else if ((c == 't') || (c == 'T')) {
+                        c = 0x0009; // unicode tab
+                    } else if ((c == 'b') || (c == 'B')) {
+                        c = 0x0008; // unicode backspace
+                    } else if ((c == 'n') || (c == 'N')) {
+                        c = 0x000A; // unicode line feed
+                    } else if ((c == 'r') || (c == 'R')) {
+                        c = 0x000D; // unicode carriage return
+                    } else if ((c == 'f') || (c == 'F')) {
+                        c = 0x000C; // unicode form feed
+                    } else {
+                        // in all other cases just pass the backslash along
+                        sb.append('\\');
+                    }
+                }
+            }
+            sb.append(c);
         }
         return sb.toString();
     }
