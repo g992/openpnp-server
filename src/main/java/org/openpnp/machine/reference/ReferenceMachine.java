@@ -503,7 +503,6 @@ public class ReferenceMachine extends AbstractMachine {
         List<Class<? extends Driver>> l = new ArrayList<>();
         l.add(NullDriver.class);
         l.add(GcodeDriver.class);
-        l.add(org.openpnp.machine.reference.driver.KlipperGcodeDriver.class);
         l.add(GcodeAsyncDriver.class);
         l.add(NeoDen4Driver.class);
         return l;
