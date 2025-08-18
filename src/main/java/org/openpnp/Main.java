@@ -26,6 +26,7 @@ import java.util.Locale;
 import javax.swing.ToolTipManager;
 import javax.swing.UIManager;
 
+import org.openpnp.api.OpenPnPApiServer;
 import org.openpnp.gui.MainFrame;
 import org.openpnp.gui.components.ThemeDialog;
 import org.openpnp.gui.components.ThemeInfo;
@@ -33,6 +34,7 @@ import org.openpnp.gui.components.ThemeSettingsPanel;
 import org.openpnp.logging.ConsoleWriter;
 import org.openpnp.logging.SystemLogger;
 import org.openpnp.model.Configuration;
+import org.openpnp.api.listeners.RealtimeWebSocketListener;
 import org.pmw.tinylog.Configurator;
 import org.pmw.tinylog.Level;
 import org.pmw.tinylog.Logger;
@@ -63,26 +65,25 @@ public class Main {
         String version = Main.class.getPackage().getImplementationVersion();
         if (version == null) {
             // Select the test branch, as this is likely a developer running OpenPnP.
-            version = "test"; 
-        }
-        else {
+            version = "test";
+        } else {
             // Take the hash.
-            version = version.substring(version.indexOf(".")+1);
+            version = version.substring(version.indexOf(".") + 1);
         }
-        return "https://github.com/openpnp/openpnp/blob/"+version+"/";
+        return "https://github.com/openpnp/openpnp/blob/" + version + "/";
     }
 
     private static void configureLogging(File configurationDirectory) {
         File logDirectory = new File(configurationDirectory, "log");
         File logFile = new File(logDirectory, "OpenPnP.log");
         Configurator
-            .currentConfig()
-            .writer(new RollingFileWriter(logFile.getAbsolutePath(), 100))
-            .addWriter(new ConsoleWriter(System.out, System.err))
-            .activate();
+                .currentConfig()
+                .writer(new RollingFileWriter(logFile.getAbsolutePath(), 100))
+                .addWriter(new ConsoleWriter(System.out, System.err))
+                .activate();
         Configurator.currentConfig()
-            .formatPattern("{date:yyyy-MM-dd HH:mm:ss.SSS} {class_name} {level}: {message}")
-            .activate();
+                .formatPattern("{date:yyyy-MM-dd HH:mm:ss.SSS} {class_name} {level}: {message}")
+                .activate();
 
         // Redirect the stdout and stderr to the LogPanel
         SystemLogger out = new SystemLogger(System.out, Level.INFO);
@@ -90,17 +91,22 @@ public class Main {
         System.setOut(out);
         System.setErr(err);
     }
-    
+
     private static void monkeyPatchBeansBinding() {
-        // This hack fixes a bug in BeansBinding that will never be released due to to the library
-        // being abandoned. The bug is that in BeansBinding.bind, it chooses to call an uncached
-        // introspection method rather than a cached one. This causes each binding to take upwards
-        // of 50ms on my machine. On a form with many bindings this can cause a huge load time
+        // This hack fixes a bug in BeansBinding that will never be released due to to
+        // the library
+        // being abandoned. The bug is that in BeansBinding.bind, it chooses to call an
+        // uncached
+        // introspection method rather than a cached one. This causes each binding to
+        // take upwards
+        // of 50ms on my machine. On a form with many bindings this can cause a huge
+        // load time
         // when loading wizards. This was most apparent on Feeders.
         // Note that the bug was fixed in Subversion in revision 629:
         // https://java.net/projects/beansbinding/sources/svn/revision/629
         // But it is unlikely this will ever be released to Maven.
-        // This hack was found at http://blog.marcnuri.com/beansbinding-performance-issue-37/
+        // This hack was found at
+        // http://blog.marcnuri.com/beansbinding-performance-issue-37/
         try {
             ClassPool cp = ClassPool.getDefault();
             CtClass cc = cp.get("org.jdesktop.beansbinding.ELProperty");
@@ -121,31 +127,50 @@ public class Main {
                     + "throw new org.jdesktop.beansbinding.PropertyResolutionException(\"Exception while introspecting \" + $1.getClass().getName(), ie);"
                     + "} }");
             c = cc.toClass();
-        }
-        catch (NotFoundException ex) {
+        } catch (NotFoundException ex) {
+            ex.printStackTrace();
+        } catch (CannotCompileException ex) {
             ex.printStackTrace();
         }
-        catch (CannotCompileException ex) {
-            ex.printStackTrace();
+    }
+
+    private static OpenPnPApiServer apiServer;
+
+    private static void startApiServer() {
+        try {
+            // Получаем порт из системных свойств или используем по умолчанию
+            int apiPort = Integer.parseInt(System.getProperty("openpnp.api.port", "8080"));
+
+            // Проверяем, включен ли API через системное свойство
+            boolean apiEnabled = Boolean.parseBoolean(System.getProperty("openpnp.api.enabled", "true"));
+
+            if (apiEnabled) {
+                apiServer = new OpenPnPApiServer();
+                apiServer.start(apiPort);
+            } else {
+                Logger.info("API сервер отключен через настройку openpnp.api.enabled=false");
+            }
+        } catch (Exception e) {
+            Logger.error("Ошибка запуска API сервера: " + e.getMessage(), e);
+            // Не останавливаем приложение, если API не запустился
         }
     }
 
     public static void main(String[] args) {
         monkeyPatchBeansBinding();
-        
+
         for (String s : args) {
             if (s.equals("--version")) {
                 System.out.println(getVersion());
                 System.exit(0);
             }
         }
-        
+
         // http://developer.apple.com/library/mac/#documentation/Java/Conceptual/Java14Development/07-NativePlatformIntegration/NativePlatformIntegration.html#//apple_ref/doc/uid/TP40001909-212952-TPXREF134
         System.setProperty("apple.laf.useScreenMenuBar", "true");
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
             throw new Error(e);
         }
 
@@ -169,15 +194,27 @@ public class Main {
         ThemeDialog.getInstance().setOldTheme(theme);
         ToolTipManager.sharedInstance().setDismissDelay(60000);
 
+        // Запуск API сервера
+        startApiServer();
+
         EventQueue.invokeLater(new Runnable() {
             public void run() {
                 try {
                     MainFrame frame = new MainFrame(configuration);
                     frame.setVisible(true);
-                    Logger.info(String.format("Bienvenue, Bienvenido, Willkommen, Hello, Namaskar, Welkom, Bonjour to OpenPnP version %s.", Main.getVersion()));
+                    Logger.info(String.format(
+                            "Bienvenue, Bienvenido, Willkommen, Hello, Namaskar, Welkom, Bonjour to OpenPnP version %s.",
+                            Main.getVersion()));
                     configuration.getScripting().on("Startup", null);
-                }
-                catch (Exception e) {
+                    // Инициализируем реалтаймовый WebSocket слушатель событий машины
+                    if (configuration.getMachine() != null) {
+                        RealtimeWebSocketListener realtimeListener = new RealtimeWebSocketListener();
+                        realtimeListener.initialize(configuration.getMachine());
+                        Logger.info("Realtime WebSocket listener initialized");
+                    } else {
+                        Logger.info("Machine not configured, realtime WebSocket listener not initialized");
+                    }
+                } catch (Exception e) {
                     e.printStackTrace();
                 }
             }

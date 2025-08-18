@@ -1,0 +1,781 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPnP Camera Stream Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .status-connected {
+            background-color: #4CAF50;
+        }
+
+        .status-disconnected {
+            background-color: #f44336;
+        }
+
+        .status-connecting {
+            background-color: #ff9800;
+        }
+
+        .controls {
+            margin: 20px 0;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .camera-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin: 20px 0;
+        }
+
+        .camera-panel {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            background-color: #fafafa;
+        }
+
+        .camera-stream {
+            width: 100%;
+            max-width: 400px;
+            height: 300px;
+            border: 2px solid #ddd;
+            border-radius: 4px;
+            background-color: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+
+        .camera-info {
+            margin: 10px 0;
+            font-size: 12px;
+            color: #666;
+        }
+
+        button {
+            padding: 8px 16px;
+            margin: 2px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+
+        .btn-warning {
+            background-color: #ffc107;
+            color: black;
+        }
+
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+
+        select,
+        input {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 2px 0;
+        }
+
+        .log-success {
+            color: #28a745;
+        }
+
+        .log-error {
+            color: #dc3545;
+        }
+
+        .log-info {
+            color: #007bff;
+        }
+
+        .timestamp {
+            color: #6c757d;
+            font-size: 11px;
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .stat-card {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+
+        .fps-counter {
+            position: absolute;
+            top: 5px;
+            right: 5px;
+            background-color: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 11px;
+        }
+
+        .stream-container {
+            position: relative;
+            display: inline-block;
+        }
+
+        .connection-status {
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+
+        .connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .status-panel {
+            grid-column: 1 / -1;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>OpenPnP Camera Stream Test</h1>
+
+        <div class="status-panel panel">
+            <h2>Статус соединения</h2>
+            <div id="connectionStatus" class="connection-status disconnected">
+                Отключено
+            </div>
+            <button id="connectBtn" onclick="connect()">Подключиться</button>
+            <button id="disconnectBtn" onclick="disconnect()" disabled>Отключиться</button>
+            <button onclick="getStatus()">Обновить статус</button>
+
+            <div
+                style="margin-top: 15px; padding: 10px; background-color: #e9ecef; border-radius: 4px; font-size: 14px;">
+                <strong>Новая архитектура:</strong> Теперь каждая камера работает на отдельном WebSocket соединении,
+                что позволяет получать стримы с нескольких камер одновременно!
+            </div>
+        </div>
+
+        <div class="controls">
+            <button class="btn-primary" onclick="connect()">Подключиться</button>
+            <button class="btn-warning" onclick="disconnect()">Отключиться</button>
+            <button class="btn-success" onclick="getCameras()">Получить камеры</button>
+            <button class="btn-secondary" onclick="getStreamInfo()">Информация о стримах</button>
+            <button class="btn-danger" onclick="clearLog()">Очистить лог</button>
+            <div class="quick-actions">
+                <button class="success" onclick="homeMachine()">Хоминг машины</button>
+                <button class="success" onclick="homeComponent()">Хоминг компонента</button>
+                <button onclick="moveToSafeZ()">Safe Z</button>
+                <button onclick="getPosition()">Получить позицию</button>
+                <button onclick="ping()">Ping</button>
+                <button onclick="getConnectionStats()">Статистика подключений</button>
+                <button onclick="cleanupSessions()" class="danger">Очистить сессии</button>
+            </div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="activeStreams">0</div>
+                <div class="stat-label">Активные стримы</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="totalFrames">0</div>
+                <div class="stat-label">Всего кадров</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="avgFps">0</div>
+                <div class="stat-label">Средний FPS</div>
+            </div>
+        </div>
+
+        <div class="camera-controls" id="cameraControls">
+            <!-- Панели камер будут добавлены динамически -->
+        </div>
+
+        <div class="log-container">
+            <h3>Лог событий</h3>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let wsConnections = new Map(); // Множественные WebSocket соединения
+        let cameras = [];
+        let activeStreams = new Map();
+        let frameCount = 0;
+        let lastFrameTime = Date.now();
+        let fpsHistory = [];
+        let reconnectAttempts = new Map(); // Счетчики попыток для каждой камеры
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 3000; // 3 секунды
+
+        function log(message, type = 'info') {
+            const logElement = document.getElementById('log');
+            const timestamp = new Date().toLocaleTimeString();
+            const className = type === 'error' ? 'log-error' : type === 'success' ? 'log-success' : 'log-info';
+            logElement.innerHTML += `<div class="${className}"><span class="timestamp">[${timestamp}]</span> ${message}</div>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function updateConnectionStatus(status, className) {
+            document.getElementById('connectionStatus').textContent = status;
+            document.getElementById('connectionStatus').className = `connection-status ${className}`;
+
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+
+            if (className === 'connected') {
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+
+        function connect() {
+            // Подключаемся к основному WebSocket для получения списка камер
+            if (wsConnections.has('main') && wsConnections.get('main').readyState === WebSocket.OPEN) {
+                log('Уже подключено к основному WebSocket');
+                return;
+            }
+
+            updateConnectionStatus('Подключение...', 'status-connecting');
+            log('Попытка подключения к WebSocket стрима камер...');
+
+            try {
+                const mainWs = new WebSocket('ws://localhost:8080/ws/camera-stream');
+
+                mainWs.onopen = function (event) {
+                    updateConnectionStatus('Подключено', 'status-connected');
+                    reconnectAttempts.set('main', 0);
+                    log('Основной WebSocket подключение установлено', 'success');
+                    getCameras();
+                };
+
+                mainWs.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleMainMessage(data);
+                    } catch (e) {
+                        log('Получено сообщение: ' + event.data);
+                    }
+                };
+
+                mainWs.onclose = function (event) {
+                    updateConnectionStatus('Отключено', 'status-disconnected');
+                    log('Основной WebSocket соединение закрыто', 'error');
+                    stopAllStreams();
+
+                    // Попытка переподключения только для основного соединения
+                    const attempts = reconnectAttempts.get('main') || 0;
+                    if (attempts < maxReconnectAttempts) {
+                        reconnectAttempts.set('main', attempts + 1);
+                        log(`Попытка переподключения основного WebSocket ${attempts + 1}/${maxReconnectAttempts} через ${reconnectDelay / 1000} секунды...`, 'info');
+                        setTimeout(connect, reconnectDelay);
+                    } else {
+                        log(`Достигнуто максимальное количество попыток переподключения основного WebSocket (${maxReconnectAttempts}). Переподключение остановлено.`, 'error');
+                    }
+                };
+
+                mainWs.onerror = function (error) {
+                    updateConnectionStatus('Ошибка', 'status-disconnected');
+                    log('Ошибка основного WebSocket: ' + error, 'error');
+                };
+
+                wsConnections.set('main', mainWs);
+
+            } catch (error) {
+                log('Ошибка создания основного WebSocket: ' + error, 'error');
+                updateConnectionStatus('Ошибка', 'status-disconnected');
+            }
+        }
+
+        function connectToCamera(cameraId) {
+            if (wsConnections.has(cameraId) && wsConnections.get(cameraId).readyState === WebSocket.OPEN) {
+                log(`Уже подключено к камере ${cameraId}`);
+                return;
+            }
+
+            log(`Подключение к камере ${cameraId}...`, 'info');
+
+            try {
+                const cameraWs = new WebSocket('ws://localhost:8080/ws/camera-stream');
+
+                cameraWs.onopen = function (event) {
+                    reconnectAttempts.set(cameraId, 0);
+                    log(`WebSocket камеры ${cameraId} подключение установлено`, 'success');
+
+                    // Отправляем команду запуска стрима
+                    const startCommand = {
+                        command: "start_stream",
+                        cameraId: cameraId,
+                        fps: 10,
+                        quality: "medium"
+                    };
+                    cameraWs.send(JSON.stringify(startCommand));
+                };
+
+                cameraWs.onmessage = function (event) {
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleCameraMessage(cameraId, data);
+                    } catch (e) {
+                        log(`Получено сообщение от камеры ${cameraId}: ` + event.data);
+                    }
+                };
+
+                cameraWs.onclose = function (event) {
+                    log(`WebSocket камеры ${cameraId} соединение закрыто`, 'error');
+                    activeStreams.delete(cameraId);
+                    updateCameraControls();
+
+                    // Попытка переподключения для этой камеры
+                    const attempts = reconnectAttempts.get(cameraId) || 0;
+                    if (attempts < maxReconnectAttempts) {
+                        reconnectAttempts.set(cameraId, attempts + 1);
+                        log(`Попытка переподключения камеры ${cameraId} ${attempts + 1}/${maxReconnectAttempts} через ${reconnectDelay / 1000} секунды...`, 'info');
+                        setTimeout(() => connectToCamera(cameraId), reconnectDelay);
+                    } else {
+                        log(`Достигнуто максимальное количество попыток переподключения камеры ${cameraId} (${maxReconnectAttempts}). Переподключение остановлено.`, 'error');
+                    }
+                };
+
+                cameraWs.onerror = function (error) {
+                    log(`Ошибка WebSocket камеры ${cameraId}: ` + error, 'error');
+                };
+
+                wsConnections.set(cameraId, cameraWs);
+
+            } catch (error) {
+                log(`Ошибка создания WebSocket для камеры ${cameraId}: ` + error, 'error');
+            }
+        }
+
+        function disconnect() {
+            // Останавливаем автоматическое переподключение для всех соединений
+            reconnectAttempts.forEach((attempts, key) => {
+                reconnectAttempts.set(key, maxReconnectAttempts);
+            });
+
+            stopAllStreams();
+
+            // Закрываем все WebSocket соединения
+            wsConnections.forEach((ws, key) => {
+                if (ws) {
+                    ws.close();
+                }
+            });
+            wsConnections.clear();
+
+            log('Все WebSocket соединения закрыты пользователем', 'info');
+        }
+
+        function handleMainMessage(data) {
+            switch (data.type) {
+                case 'cameras_list':
+                    cameras = data.cameras;
+                    updateCameraControls();
+                    log(`Получен список камер: ${cameras.length} камер`);
+                    break;
+                case 'stream_started':
+                    log(`Стрим камеры ${data.cameraId} запущен с FPS: ${data.fps}`);
+                    // Обновляем состояние стрима
+                    activeStreams.set(data.cameraId, { fps: data.fps, quality: 'medium' });
+                    updateCameraControls();
+                    updateStats();
+                    break;
+                case 'stream_stopped':
+                    log('Стрим остановлен');
+                    // Очищаем все активные стримы
+                    activeStreams.clear();
+                    updateCameraControls();
+                    updateStats();
+                    break;
+                case 'frame':
+                    handleFrame(data);
+                    break;
+                case 'error':
+                    log('Ошибка: ' + data.error);
+                    break;
+                case 'pong':
+                    // log('Получен pong');
+                    break;
+                default:
+                    log('Неизвестный тип сообщения: ' + data.type);
+            }
+        }
+
+        function handleCameraMessage(cameraId, data) {
+            switch (data.type) {
+                case 'stream_started':
+                    log(`Стрим камеры ${cameraId} запущен с FPS: ${data.fps}`, 'success');
+                    // Обновляем состояние стрима
+                    activeStreams.set(cameraId, { fps: data.fps, quality: 'medium' });
+                    updateCameraControls();
+                    updateStats();
+                    break;
+                case 'stream_stopped':
+                    log(`Стрим камеры ${cameraId} остановлен`, 'info');
+                    // Удаляем из активных стримов
+                    activeStreams.delete(cameraId);
+                    updateCameraControls();
+                    updateStats();
+                    break;
+                case 'frame':
+                    handleFrame(data);
+                    break;
+                case 'error':
+                    log(`Ошибка для камеры ${cameraId}: ${data.error}`, 'error');
+                    break;
+                case 'pong':
+                    // log(`Получен pong для камеры ${cameraId}`);
+                    break;
+                default:
+                    log(`Неизвестный тип сообщения для камеры ${cameraId}: ${data.type}`, 'info');
+            }
+        }
+
+        function handleFrame(data) {
+            frameCount++;
+            const now = Date.now();
+            const fps = 1000 / (now - lastFrameTime);
+            lastFrameTime = now;
+
+            fpsHistory.push(fps);
+            if (fpsHistory.length > 10) {
+                fpsHistory.shift();
+            }
+
+            updateStats();
+
+            // Обновляем изображение
+            const streamContainer = document.getElementById(`stream-${data.cameraId}`);
+            if (streamContainer) {
+                const img = streamContainer.querySelector('img');
+                if (img) {
+                    img.onload = function () {
+                        img.style.display = 'block'; // Показываем изображение после загрузки
+                    };
+                    img.onerror = function () {
+                        log('Ошибка загрузки изображения для камеры ' + data.cameraId);
+                        img.style.display = 'none';
+                    };
+                    // Определяем формат изображения (JPEG или PNG)
+                    const imageFormat = data.image.startsWith('/9j/') ? 'jpeg' : 'png';
+                    img.src = `data:image/${imageFormat};base64,${data.image}`;
+                }
+
+                // Скрываем текст "Стрим неактивен"
+                const statusText = streamContainer.querySelector('.camera-stream div');
+                if (statusText && statusText.textContent.includes('неактивен')) {
+                    statusText.style.display = 'none';
+                }
+
+                const fpsCounter = streamContainer.querySelector('.fps-counter');
+                if (fpsCounter) {
+                    fpsCounter.textContent = `${fps.toFixed(1)} FPS`;
+                }
+            }
+        }
+
+        function updateStats() {
+            document.getElementById('activeStreams').textContent = activeStreams.size;
+            document.getElementById('totalFrames').textContent = frameCount;
+
+            const avgFps = fpsHistory.length > 0 ?
+                fpsHistory.reduce((a, b) => a + b, 0) / fpsHistory.length : 0;
+            document.getElementById('avgFps').textContent = avgFps.toFixed(1);
+        }
+
+        function getCameras() {
+            if (wsConnections.has('main') && wsConnections.get('main').readyState === WebSocket.OPEN) {
+                wsConnections.get('main').send(JSON.stringify({ command: 'get_cameras' }));
+                log('Запрошен список камер');
+            } else {
+                log('WebSocket не подключен');
+            }
+        }
+
+        function getStreamInfo() {
+            if (wsConnections.has('main') && wsConnections.get('main').readyState === WebSocket.OPEN) {
+                wsConnections.get('main').send(JSON.stringify({ command: 'get_stream_info' }));
+                log('Запрошена информация о стримах');
+            } else {
+                log('WebSocket не подключен');
+            }
+        }
+
+        function startStream(cameraId, fps, quality) {
+            // Создаем отдельное WebSocket соединение для этой камеры
+            connectToCamera(cameraId);
+
+            // Обновляем состояние стрима
+            activeStreams.set(cameraId, { fps: fps, quality: quality });
+            updateCameraControls();
+            updateStats();
+
+            log(`Запуск стрима камеры ${cameraId} с FPS: ${fps}, качество: ${quality}`, 'success');
+        }
+
+        function stopStream(cameraId) {
+            // Закрываем WebSocket соединение для этой камеры
+            if (wsConnections.has(cameraId)) {
+                const ws = wsConnections.get(cameraId);
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ command: 'stop_stream' }));
+                }
+                ws.close();
+                wsConnections.delete(cameraId);
+            }
+
+            // Удаляем из активных стримов
+            activeStreams.delete(cameraId);
+            updateCameraControls();
+            updateStats();
+
+            log(`Остановка стрима камеры ${cameraId}`, 'info');
+        }
+
+        function stopAllStreams() {
+            // Останавливаем все стримы камер
+            activeStreams.forEach((stream, cameraId) => {
+                stopStream(cameraId);
+            });
+
+            // Очищаем активные стримы
+            activeStreams.clear();
+            updateStats();
+            updateCameraControls();
+        }
+
+        function updateCameraControls() {
+            const container = document.getElementById('cameraControls');
+            container.innerHTML = '';
+
+            cameras.forEach(camera => {
+                const panel = document.createElement('div');
+                panel.className = 'camera-panel';
+
+                const isStreaming = activeStreams.has(camera.id);
+
+                panel.innerHTML = `
+                    <h4>${camera.name} (${camera.id})</h4>
+                    <div class="camera-info">
+                        <div>Тип: ${camera.type}</div>
+                        <div>Разрешение: ${camera.width}x${camera.height}</div>
+                        <div>Расположение: ${camera.location}</div>
+                    </div>
+                    
+                    <div class="stream-container" id="stream-${camera.id}">
+                        <div class="camera-stream">
+                            <img src="" style="max-width: 100%; max-height: 100%; display: none;">
+                            <div>${isStreaming ? 'Стрим активен' : 'Стрим неактивен'}</div>
+                        </div>
+                        <div class="fps-counter">0.0 FPS</div>
+                    </div>
+                    
+                    <div style="margin-top: 10px;">
+                        <select id="fps-${camera.id}" style="width: 80px;">
+                            <option value="1">1 FPS</option>
+                            <option value="5">5 FPS</option>
+                            <option value="10" selected>10 FPS</option>
+                            <option value="15">15 FPS</option>
+                            <option value="20">20 FPS</option>
+                            <option value="30">30 FPS</option>
+                        </select>
+                        
+                        <select id="quality-${camera.id}" style="width: 100px;">
+                            <option value="low">Низкое</option>
+                            <option value="medium" selected>Среднее</option>
+                            <option value="high">Высокое</option>
+                        </select>
+                        
+                        <button class="btn-${isStreaming ? 'danger' : 'success'}" 
+                                onclick="${isStreaming ? 'stopStream' : 'startStream'}('${camera.id}', 
+                                    document.getElementById('fps-${camera.id}').value, 
+                                    document.getElementById('quality-${camera.id}').value)">
+                            ${isStreaming ? 'Остановить' : 'Запустить'}
+                        </button>
+                    </div>
+                `;
+
+                container.appendChild(panel);
+
+                // Показываем изображение если стрим активен
+                if (isStreaming) {
+                    const img = panel.querySelector('img');
+                    const statusText = panel.querySelector('.camera-stream div');
+                    if (img) {
+                        img.style.display = 'block';
+                    }
+                    if (statusText && statusText.textContent.includes('неактивен')) {
+                        statusText.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        function getConnectionStats() {
+            fetch('/api/cameras/stats')
+                .then(response => response.text())
+                .then(data => {
+                    log('=== Статистика подключений ===', 'info');
+                    log(data, 'info');
+                })
+                .catch(error => {
+                    log('Ошибка получения статистики: ' + error, 'error');
+                });
+        }
+
+        function cleanupSessions() {
+            if (confirm('Вы уверены, что хотите очистить все неактивные сессии?')) {
+                fetch('/api/cameras/cleanup', { method: 'POST' })
+                    .then(response => response.text())
+                    .then(data => {
+                        log('Сессии очищены: ' + data, 'success');
+                        getConnectionStats(); // Обновляем статистику
+                    })
+                    .catch(error => {
+                        log('Ошибка очистки сессий: ' + error, 'error');
+                    });
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        function ping() {
+            // Отправляем ping на все активные соединения
+            wsConnections.forEach((ws, key) => {
+                if (ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({ command: 'ping' }));
+                }
+            });
+            log('Ping отправлен на все соединения');
+        }
+
+        function getStatus() {
+            // Получаем статус через основной WebSocket
+            if (wsConnections.has('main') && wsConnections.get('main').readyState === WebSocket.OPEN) {
+                wsConnections.get('main').send(JSON.stringify({ command: 'get_stream_info' }));
+                log('Запрошена информация о стримах');
+            } else {
+                log('Основной WebSocket не подключен', 'error');
+            }
+        }
+
+        // Автоматическое подключение при загрузке страницы
+        window.onload = function () {
+            log('Страница загружена, автоматическое подключение...');
+            setTimeout(connect, 1000);
+        };
+
+        // Обработка закрытия страницы
+        window.onbeforeunload = function () {
+            if (wsConnections.has('main')) {
+                wsConnections.get('main').close();
+            }
+            wsConnections.forEach((ws, key) => {
+                if (ws) {
+                    ws.close();
+                }
+            });
+            wsConnections.clear();
+        };
+    </script>
+</body>
+
+</html>
